@@ -431,6 +431,11 @@ function ok(cond,label,extra){ if(cond){PASS++;console.log('  ✅ '+label);} els
      '点豆 + 杠家未叫牌 + 放杠者也没叫牌 → 不结算（"不叫牌不用给"）',s.offMgNoTing);
   ok(s.offMgTing.total[1]===-3&&s.offMgTing.total[0]===3,
      '点豆 + 杠家未叫牌 + 放杠者是叫牌家 → 倒赔给放杠那家 3 个',JSON.stringify(s.offMgTing.total));
+  // 文案体检：结算明细是**纯文本**（不是 Markdown），漏进 ** 或反引号玩家就会看到字面星号
+  //（本项目实测抓到过 3 处：冲锋鸡责任转移 / 责任鸡 / 豆倒赔）。
+  const douAll=[].concat(s.bu.lines,s.an.lines,s.mg.lines,s.offBu.lines,s.offMgNoTing.lines,s.offMgTing.lines);
+  const douDirty=douAll.filter(l=>/\*\*|`/.test(l));
+  ok(douDirty.length===0,'豆的明细里没有漏进 Markdown 记号（** 或反引号）',douDirty);
 
   console.log('\n===== ⑯ 荒庄查叫：未叫牌者赔给叫牌者 =====');
   s=await ev(`(()=>{

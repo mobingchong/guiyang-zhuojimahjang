@@ -325,6 +325,11 @@ const T=p=>JSON.stringify(p);
   ok(s.lines.some(l=>/下家［叫牌］留 幺鸡\(1条\)×3/.test(l)),'⑦ 被碰走的鸡**随牌转移**：算碰牌者的保留（副露 3 张）',s.lines);
   ok(s.lines.some(l=>/下家 每个未叫家收 3 分/.test(l)),'收付按 3 张算（不是 1 张）',s.lines);
 
+  // 文案体检：鸡牌明细同样是**纯文本**，必须把冲锋鸡/责任鸡那几行也覆盖到
+  const sVis=await run(0,{fc:5,hand:{0:{9:1}},disc:{1:[9]},charge:{p:0,card:9},resp:{from:1,by:2,card:9,how:'碰'}});
+  const dirty=(sVis.lines||[]).filter(l=>/\*\*|`/.test(l));
+  ok(dirty.length===0,'结算明细（含冲锋鸡/责任鸡行）没有漏进 Markdown 记号（** 或反引号）',dirty);
+
   console.log('\n===== ⑩ 集成：真实的碰/杠挂点是否真的写了对的状态 =====');
   // ⚠️ 前面几组都是直接调 chickenSettle；这里故意走**真函数** doPeng/doGang，
   //    因为"挂点忘了写状态"这类 bug 在结算测试里是看不出来的（状态是测试自己塞的）。

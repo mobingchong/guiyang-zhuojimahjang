@@ -2591,7 +2591,7 @@ function chickenSettle(win, lines, total){
       if(called[ch.p]){via='（原打出者 '+NAMES[ch.from]+'，被 '+ch.via+'走 → 责任已转移）';}
       else{
         holder=ch.from;
-        lines.push(`冲锋鸡责任转移：${NAMES[ch.p]} ${ch.via}走时**未叫牌** → 不转移，仍归原打出者 ${NAMES[holder]}`);
+        lines.push(`冲锋鸡责任转移：${NAMES[ch.p]} ${ch.via}走时未叫牌 → 不转移，仍归原打出者 ${NAMES[holder]}`);
       }
     }
     const what=`${chickenName(ch.card)}${via}`;
@@ -2639,7 +2639,7 @@ function chickenSettle(win, lines, total){
       return;
     }
     if(!dry){total[rp.from]-=1;total[rp.by]+=1;}
-    lines.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走 → 这副露按 ${tiles} 张算，其它未叫家各付 ${tiles*v} 分、${NAMES[rp.from]} **多付 1 分**（共 ${tiles*v+1} 分），付给 ${NAMES[rp.by]}`);
+    lines.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走 → 这副露按 ${tiles} 张算，其它未叫家各付 ${tiles*v} 分、${NAMES[rp.from]} 多付 1 分（共 ${tiles*v+1} 分），付给 ${NAMES[rp.by]}`);
   });
   return {detail:sur,called:called,fieldChicken:fc};
 }
@@ -2710,7 +2710,7 @@ function douSettle(win,from,isQG,lines,total){
           return;
         }
         recv.forEach(q=>{d[p]-=DOU;d[q]+=DOU;});
-        txt=`${NAMES[p]} ${kind}${cname(m.card)}：他**未叫牌** → 倒赔给 ${recv.map(q=>NAMES[q]).join('、')} 各 ${DOU} 个`;
+        txt=`${NAMES[p]} ${kind}${cname(m.card)}：他未叫牌 → 倒赔给 ${recv.map(q=>NAMES[q]).join('、')} 各 ${DOU} 个`;
       }
       for(let q=0;q<4;q++)total[q]+=d[q];
       lines.push(txt);
