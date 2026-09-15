@@ -2528,7 +2528,7 @@ function doHuMulti(list,from,zimo){
    ## 四、收付方向（用户 2026-09-16 定稿；**旧口径作废**）
    · **每个叫牌家按自己的鸡数，向其他三家各收一份**（叫牌家、未叫家**都要付**）。
    · **未叫家只付不收**（他的鸡不算分）。
-   · **包鸡**：未叫家**打出的** 幺鸡/8筒 归**每个叫牌家**各一份（留着的仍不算）。
+   · **包鸡**：未叫家**打出的** 幺鸡/8筒 归**每个叫牌家**各一份（留着的仍不算）；**第一张打出的那张 = 冲锋鸡 → 算 2 份**（那张牌只按冲锋鸡算，不再重复算 1 份常鸡）。
    · 热炮（杠上炮）：点炮者的鸡**全烧**（不收、也不当包鸡赔），但**该他付的照付**。
    · 用户给的算例（叫牌家 0 / 3 / 4 只，未叫家 1 只留着的）：
         0 只的收 0 付 7 → −7；未叫家收 0 付 7 → −7；3 只的收 9 付 4 → +5；4 只的收 12 付 3 → +9（合计 0）。
@@ -2539,7 +2539,8 @@ function doHuMulti(list,from,zimo){
    ## 五、冲锋鸡（③）/ 责任鸡（④）—— 独立收付，不走上面这套
    · 冲锋鸡 = **每个牌种一只**：本局**第一张**被打出的 幺鸡、以及**第一张**被打出的 乌骨鸡
      （用户 2026-09-16："冲1条和冲8筒应该都算两个；如果两个在一家，就有4个"）。
-     分值 2；该**牌种**本局是金鸡 → 4；同一家持两只 → 相加。
+     分值 2（= 那张牌**算两个**；常规统计里已把它扣掉，不重复算 1 份）；
+     该**牌种**本局是金鸡 → 4；同一家持两只 → 相加。
      **责任转移**：这只牌被**叫牌家**碰/杠走 → 持有者换成碰走者（前提是"碰走者叫牌或胡牌"，
      在结算时判定）；碰走者未叫 → 不转移，仍归原打出者。
      收付：持有者叫牌 → **其他三家各付**（含胡牌家 —— 胡了牌也照样付）；
@@ -2639,10 +2640,27 @@ function chickenSettle(win, lines, total, burn){
   //    · 热炮：点炮者的鸡**全烧**（不收、也不当包鸡赔），但**该他付的照付**。
   //    用户给的算例（对家 3 只、上家 4 只、你 0 只、下家未叫 1 只留着的）：
   //      对家 每家收 3 × 3 家、上家 每家收 4 × 3 家 → 你 −7、下家 −7、对家 +5、上家 +9（合计 0）。
-  const ownC=[0,1,2,3].map(p=>(called[p]&&!isBurned(p))?chickenOwnPts(sur[p]):0);
+  // 冲锋鸡那只牌由 ④ 段单独结算（2 / 4 分）—— 常规统计里要把这 1 张**扣掉**，否则同一张牌算两次。
+  //   用户 2026-09-16：未叫家第一张打出 1条 + 第一张打出 8筒、他自己没叫 → **给各家 4 个**；
+  //   按"4 + 每张 1 个 = 6"就是重复了。即"冲锋鸡算两个"= **那张牌就值 2 个**，不是再加 2 个。
+  const chargeOwner=ch=>{ if(!ch.via)return ch.p; return called[ch.p]?ch.p:ch.from; };
+  const skipCharge={};                                  // p → {牌: 已经按冲锋鸡算过的张数}
+  (G.chargeChickens||[]).forEach(ch=>{
+    const o=chargeOwner(ch);
+    skipCharge[o]=skipCharge[o]||{};
+    skipCharge[o][ch.card]=(skipCharge[o][ch.card]||0)+1;
+  });
+  const cut=(p,c,n)=>{                                  // 扣掉"已按冲锋鸡算过"的张数（不会扣成负数）
+    const k=(skipCharge[p]||{})[c]||0;
+    return Math.max(0,n-k);
+  };
+  const ownC=[0,1,2,3].map(p=>{
+    if(!called[p]||isBurned(p))return 0;
+    return sur[p].rows.reduce((a,r)=>a+cut(p,r.c,r.keep+r.disc)*r.v,0);
+  });
   const thrownC=[0,1,2,3].map(p=>{
     if(called[p]||isBurned(p))return 0;                 // 只有**未叫家打出的**鸡才算包鸡
-    return sur[p].rows.reduce((a,r)=>a+((r.c===YAOJI||r.c===WUGUJI)?r.disc*r.v:0),0);
+    return sur[p].rows.reduce((a,r)=>a+((r.c===YAOJI||r.c===WUGUJI)?cut(p,r.c,r.disc)*r.v:0),0);
   });
   const sumOwn=ownC.reduce((a,b)=>a+b,0);
   const sumThrown=thrownC.reduce((a,b)=>a+b,0);
@@ -2675,14 +2693,11 @@ function chickenSettle(win, lines, total, burn){
   if(chs.length){
     const hold={};                                     // 持有者 → 他持有的冲锋鸡
     chs.forEach(ch=>{
-      let holder=ch.p,via='';
-      if(ch.via){
-        if(called[ch.p])via='（原打出者 '+NAMES[ch.from]+'，被 '+ch.via+'走 → 责任已转移）';
-        else{
-          holder=ch.from;
-          lines.push(`冲锋鸡责任转移：${NAMES[ch.p]} ${ch.via}走时未叫牌 → 不转移，仍归原打出者 ${NAMES[holder]}`);
-        }
-      }
+      // 持有者（含责任转移）与 ③ 段共用同一个 chargeOwner，两处判定不会走偏
+      const holder=chargeOwner(ch);
+      const via=(ch.via&&called[ch.p])?'（原打出者 '+NAMES[ch.from]+'，被 '+ch.via+'走 → 责任已转移）':'';
+      if(ch.via&&!called[ch.p])
+        lines.push(`冲锋鸡责任转移：${NAMES[ch.p]} ${ch.via}走时未叫牌 → 不转移，仍归原打出者 ${NAMES[holder]}`);
       (hold[holder]=hold[holder]||[]).push({card:ch.card,via:via});
     });
     Object.keys(hold).forEach(k=>{
