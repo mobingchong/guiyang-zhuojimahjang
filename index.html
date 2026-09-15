@@ -2467,12 +2467,11 @@ function doHuMulti(list,from,zimo){
      前提：碰走者必须叫牌（否则那副露的鸡不算）；打出者必须未叫（叫牌家之间鸡分互不赔）。
    ⚠️ 牌种口径（用户 2026-09-15 明确）：**乌骨鸡参与冲锋鸡、不参与责任鸡**。
       即：第一张打出的乌骨鸡可以是冲锋鸡（也能被碰走后转移责任），但乌骨鸡被碰走**不产生**
-      那额外的 1 分。代码里两个开关：`CHARGE_ANY_CHICKEN`（冲锋鸡）与 `isRespTile`（责任鸡）。
+      那额外的 1 分。牌种由 `isChargeTile`（冲锋鸡：幺鸡或乌骨鸡）与 `isRespTile`（责任鸡：只认幺鸡）决定。
    ⚠️ 明杠与碰同等处理（代码里 how 区分）。 */
 const YAOJI=9, WUGUJI=25;
-const CHARGE_ANY_CHICKEN=true;               // ⚠️ 用户口径（2026-09-15）：**乌骨鸡参与冲锋鸡**。
-                                             //    所以冲锋鸡 = 本局第一张被打出的"幺鸡**或**乌骨鸡"。
-                                             //    注意责任鸡是**另一条**（只认幺鸡，见 isRespTile）。
+// 冲锋鸡的牌种 = 幺鸡 或 乌骨鸡（用户 2026-09-15 定稿：不做开关，固定如此；
+// 也不叫什么"黑八" —— 这张牌就叫**乌骨鸡(8筒)**）。
 const BAOTING_FAN=17, TIANTING_FAN=34, OPEN_FOLLOW_FAN=4;   // 报听/天听/开局跟 的番值
 /* 报听的口径说明（两个来源有冲突，这里按**用户的表**实现，一行可切）：
    · 百科《贵阳捉鸡》：「起手牌天听（庄家起手牌或闲家摸第一张牌时叫牌）可以报听，此后不能换牌、
@@ -2480,23 +2479,25 @@ const BAOTING_FAN=17, TIANTING_FAN=34, OPEN_FOLLOW_FAN=4;   // 报听/天听/开
    · 用户的番表：报听 17 番、天听 34 番（且注明"庄家不可天听"）。
    → 本实现取用户的表：闲家首摸即报听 = 天听 34；庄家开局即报听 = 报听 17。
      若要用百科口径（一律按清一色 10 番），把下面两个常量改成 10 / 10 即可。 */
-const isChargeTile=c=>CHARGE_ANY_CHICKEN?isChickenTile(c):(c===YAOJI);   // 冲锋鸡用（幺鸡 或 乌骨鸡）
+const isChargeTile=c=>isChickenTile(c);      // 冲锋鸡用：幺鸡 或 乌骨鸡（固定，无开关）
 /* 责任鸡④（"打出的鸡被碰/杠走 → 打出者多付 1 分"）**只认幺鸡**。
    用户口径（2026-09-15）："乌骨鸡参与冲锋鸡，不算责任鸡" —— 乌骨鸡被碰走只影响冲锋鸡的责任转移，
    不产生那额外的 1 分。（要让乌骨鸡也算，把这里改成 isChickenTile 即可。） */
 const isRespTile=c=>c===YAOJI;
 
 // 一张牌在本局作为"鸡"的分值（金鸡翻倍）；不是鸡 → 0
+// ⚠️ 用户 2026-09-15：「捉鸡牌（翻牌 +1 那张）不算，贵阳麻将没有这规则」。
+//    那张牌**只用来判金鸡**（翻到 9条 → 幺鸡升金；翻到 7筒 → 8筒升金），本身不参与计分。
 function chickenValue(c,fc){
   if(c===YAOJI)  return fc===YAOJI?2:1;      // 鸡牌恰是幺鸡 → 金幺鸡 2 分/张
   if(c===WUGUJI) return fc===WUGUJI?2:1;     // 鸡牌恰是乌骨鸡 → 金乌骨鸡 2 分/张
-  return c===fc?1:0;                         // 鸡牌本身（第三门牌）1 分/张
+  return 0;                                   // 其他牌都是 0（含"翻牌 +1"那张，它不再是鸡）
 }
-const isFieldChicken=c=>c===G.chickenCard;   // 宽口径 = 本局的捉鸡牌
+// （原 isFieldChicken「宽口径」已删除：翻牌 +1 那张**不再是鸡**，不参与任何计分）
 // 鸡牌在界面上的叫法：麻将桌上就叫"幺鸡/乌骨鸡"，比自己看"1条/8筒"直观
 const chickenName=c=>(c===YAOJI?'幺鸡(1条)':c===WUGUJI?'乌骨鸡(8筒)':cname(c));
 
-/* 一家"鸡"的分布（**只统计、不判分**）。
+/* 一家"鸡"的分布（只统计、不判分）。只认 **幺鸡(1条) / 乌骨鸡(8筒)** 两种牌。
    ⚠️ 必须按**牌种**分别记 keep/disc：口径是按牌种定的（常鸡窄、捉鸡宽），
       合成一个总数就没法区分了。 */
 function chickenSurvey(p){
@@ -2508,7 +2509,7 @@ function chickenSurvey(p){
   G.melds[p].forEach(m=>{for(let k=0;k<(m.type==='gang'?4:3);k++)put(keep,m.card);});
   (G.discards[p]||[]).forEach(c=>put(disc,c));
   const rows=Object.keys(Object.assign({},keep,disc)).map(Number).sort((a,b)=>a-b)
-    .map(c=>({c:c,v:chickenValue(c,fc),keep:keep[c]||0,disc:disc[c]||0,wide:isFieldChicken(c)}));
+    .map(c=>({c:c,v:chickenValue(c,fc),keep:keep[c]||0,disc:disc[c]||0}));
   return {p:p,rows:rows};
 }
 // 一家的明细文字："留 幺鸡×2 8筒×1 ｜ 打 6万×1"（用户要求：把每家的鸡**类型与数量**写出来）
@@ -2525,7 +2526,7 @@ function chickenOwnPts(s){return s.rows.reduce((a,r)=>a+(r.keep+r.disc)*r.v,0);}
 /* 鸡分结算。total 传数组 = 真结算；传 null = **只统计不落分**（荒庄用，规则："黄庄豆鸡不算分"）。
    写进 total，并把可直接显示的明细 push 到 lines。
    顺序：① 翻（捉）鸡牌 → ② 每家鸡的类型/数量 → ③ 常鸡+捉鸡收付 → ④ 冲锋鸡 → ⑤ 责任鸡 */
-function chickenSettle(win, lines, total){
+function chickenSettle(win, lines, total, burn){
   const winList=(Array.isArray(win)?win:[win]).filter(p=>typeof p==='number'&&p>=0&&p<4);   // 可能多家同时胡
   const dry=!total;
   const fc=G.chickenCard;
@@ -2533,35 +2534,37 @@ function chickenSettle(win, lines, total){
   const callList=[0,1,2,3].filter(p=>called[p]);
   const unList=[0,1,2,3].filter(p=>!called[p]);
   const sur=[0,1,2,3].map(p=>chickenSurvey(p));
+  // 热炮（杠上炮）：点炮者的鸡全部烧掉 —— 他的鸡不收、也不因此产生赔付
+  const burnList=(Array.isArray(burn)?burn:[]).filter(p=>typeof p==='number'&&p>=0&&p<4);
+  const isBurned=p=>burnList.includes(p);
   const gold=(fc===YAOJI)?'（金幺鸡 ×2）':(fc===WUGUJI)?'（金乌骨鸡 ×2）':'';
 
   // ② 翻牌 + 每家明细（叫牌/未叫、手里的、打出的）
-  lines.push(`翻（捉）鸡牌：${fc!==null?chickenName(fc)+gold:'无（牌墙已空，不翻牌）'}`);
+  lines.push(`翻牌：${fc!==null?chickenName(fc)+gold:'无（牌墙已空，不翻牌）'}　（翻牌只用于判金鸡，这张牌本身不算鸡）`);
   sur.forEach((s,p)=>{
-    const own=chickenOwnPts(s);
-    lines.push(`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${chickenCells(s)}${own?'（'+own+'分）':''}`);
+    const own=isBurned(p)?0:chickenOwnPts(s);
+    lines.push(`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${chickenCells(s)}${own?'（'+own+'分）':''}${isBurned(p)?'　· 鸡全烧（热炮）':''}`);
   });
 
-  // 若本局捉鸡牌落在**未叫家**手里/牌河，明细里写明"不赔"，否则玩家会以为漏算
-  if(fc!==null&&fc!==YAOJI&&fc!==WUGUJI){
-    const holders=unList.filter(b=>sur[b].rows.some(r=>r.c===fc&&(r.keep+r.disc)>0));
-    if(holders.length)lines.push(`注：本局捉鸡牌 ${chickenName(fc)} 不赔给叫牌者 → ${holders.map(b=>NAMES[b]).join('、')} 手里/打出的 ${chickenName(fc)} 都不算（只有 幺鸡 / 8筒 才赔）`);
-  }
+
+  if(burnList.length)lines.push('热炮（杠上炮）：点炮者 '+burnList.map(x=>NAMES[x]).join('、')+' 的鸡全部烧掉 —— 这一局他的鸡都不算分');
 
   // ③ 常鸡 / 捉鸡 的收付
   if(!dry){
     if(callList.length&&unList.length){
       const got=[];
       callList.forEach(a=>{
+        if(isBurned(a))return;                        // 热炮：他的鸡全烧，不收
         let per=0;                                    // 每个未叫家应付给 a 的分
         sur[a].rows.forEach(r=>{per+=(r.keep+r.disc)*r.v;});                  // a 自己的全归己
         unList.forEach(b=>{
+          if(isBurned(b))return;                        // 热炮：他的鸡全烧，也不赔
           // 未叫家贡献给叫牌家的**只有 幺鸡(1条) / 8筒 这两类**：
           //   · 打出去的     → 算（规则①）
           //   · 手里保留的   → 不算（规则①后半句：留着的鸡不送人）
-          //   · 本局**捉鸡牌**（翻牌 +1 那张）→ **无论在手还是打出都不算**
+          //   · 本局"翻牌 +1"那张（旧叫法"捉鸡牌"）→ 根本不算鸡（用户口径）
           //     用户 2026-09-15 明确："打出去的鸡，1条 和 8筒 才赔给叫牌者，翻牌+1 的那张不赔"。
-          //   注：捉鸡牌恰是 1条/8筒（金鸡）时，它本身就是幺鸡/8筒 → 仍走本分支，只是分值 ×2。
+          //   注：翻到 9条/7筒 时该牌种升金，仍是幺鸡/8筒 → 走本分支，只是分值 ×2。
           sur[b].rows.forEach(r=>{if(r.c!==YAOJI&&r.c!==WUGUJI)return;per+=r.disc*r.v;});
         });
         if(!per)return;
@@ -2800,7 +2803,8 @@ function settle(win,from,zimo,hotCannon){
     [0,1,2,3].forEach(q=>{if(q!==G.dealer){total[G.dealer]-=OPEN_FOLLOW_FAN;total[q]+=OPEN_FOLLOW_FAN;}});
     lines.push(`开局跟：庄家 ${NAMES[G.dealer]} 首张 ${cname(G.openFollow.card)}，其余三家都跟打 → 三家各收 ${OPEN_FOLLOW_FAN} 分（庄家付）`);
   }
-  const chRes=chickenSettle(winners,lines,total);
+  // 热炮（杠上炮）时把点炮者传给鸡结算 → 他的鸡全部不算
+  const chRes=chickenSettle(winners,lines,total,isHC?[from]:null);
   const det=chRes.detail;
   const chickens=det.map(s=>chickenOwnPts(s));
   SFX.play('chicken',{delay:0.75});   // 翻鸡牌：排在"胡牌音"之后（见 doHu 的时序注释）
@@ -2897,6 +2901,25 @@ function endGame(){
   G.roundScore=total.slice();
   for(let p=0;p<4;p++)G.scores[p]+=total[p];
   G.result={winner:-1,winTile:-1,ting:tingL.slice()};
+  /* 荒庄定庄（用户 2026-09-15 口径）：
+     · 叫牌者中**含庄家** → 庄家连庄；
+     · **3 家叫牌、1 家未叫** → 由**未叫的那家**坐庄；
+     · 其余「部分叫牌」情形（庄家未叫、未叫者 ≥2 家）→ 由**离庄家最近的叫牌者**坐庄
+       （QQ官方规则补全；不要这一档就把下面那个 else 分支删掉，回到"一律连庄"）；
+     · 无人叫牌 / 四家全叫 → 庄家连庄。 */
+  G.nextDealer=null;
+  const calledP=[0,1,2,3].filter(pp=>isTing(pp));
+  let nd=G.dealer;
+  if(calledP.length===3){
+    const un=[0,1,2,3].filter(pp=>!isTing(pp))[0];
+    if(typeof un==='number')nd=un;
+  }else if(calledP.length>0&&calledP.length<3){
+    if(calledP.indexOf(G.dealer)>=0)nd=G.dealer;
+    else{let bo=9;calledP.forEach(pp=>{const off=(pp-G.dealer+4)%4;if(off<bo){bo=off;nd=pp;}});}
+  }
+  G.nextDealer=nd;
+  lines.push(`下局坐庄：${NAMES[nd]}${nd===G.dealer?'（连庄）':'（接庄）'}`);
+  endHandBookkeeping(-1);            // 荒庄：局数照样记一笔（庄位已由上面 nextDealer 定好）
   endHandBookkeeping(-1);            // 荒庄：庄家连庄，局数照样记一笔
   render();
   // 荒庄也要亮牌：牌墙摸完了，四家都是什么牌、谁叫牌谁没叫牌，摊开才看得明白
@@ -3395,38 +3418,57 @@ function svgTiao8(){
   o+=stick(22.83,33,SL,C_GREEN, A,W);
   return o;
 }
-// 万：真牌规范（Wikipedia《Mahjong tiles》+ 中式实物）：
-//   顶部 = 中文数字，【蓝色】；底部 = 「萬」字，【红色】。
-//   字体是楷书/行书体（笔画有粗细变化，非黑体直笔）。
-//   多数牌组的「五」用「伍」而不是「五」。
-// 关键点：一/二/三 是纯横画，字面的实际墨迹只占字体行高中间一小条，
-// 所以要给它们单独放大字号并把基线往下压，否则视觉上会「上飘、下方大片留白」。
+/* ===== 万：**固定形状**，不依赖系统字体 =====
+   真牌规范：上半 = 中文数字（蓝），下半 = 「萬」（红）。
+   🔴 为什么不能用 <text>：字体是**设备相关**的 —— 没装楷体的电脑/手机会回退到别的字体，
+      字的形状、字身框、基线全变 → 同一张牌在不同设备上"长得不一样"（用户实测反馈）。
+      这里把 一~九 与 萬 全部画成 **SVG 路径**（圆头线帽模拟毛笔起收），任何设备渲染都相同。
+   坐标：viewBox 36×50。数字区 y≈7~24；萬区 y≈26~47。
+   ⚠️ 每个数字的**视觉重心**是手工调的（一/二/三是横画，墨迹本来就只占字身中间一条），
+      改坐标后务必重新出「牌面条样」图肉眼确认上下留白均衡。 */
+function wanS(d,w,c){return `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}"
+  stroke-linecap="round" stroke-linejoin="round"/>`;}
+const WAN_NUM={
+  1:[["M7 15.4H29",4.4]],
+  2:[["M10.5 10.4H25.5",3.6],["M7 20.6H29",4.2]],
+  3:[["M10.5 8H25.5",3.4],["M13 14.8H23",3.4],["M7 21.6H29",4.2]],
+  4:[["M5.8 8V22.8",3.0],["M5.8 8H30.2V22.8",3.0],["M5.8 22.8H30.2",3.0],
+     ["M15 10.6Q12.6 16.4 11.2 21.6",2.8],["M21.4 10.4Q22 16 22.4 20Q22.7 21.6 24.8 21.4",2.8]],
+  5:[["M10.4 8.4H25.6",3.6],["M12.4 8.4V14.4",3.4],["M12.4 14.4H24.6V19.8",3.4],["M7 19.8H29",4.0]],
+  // 六 = 亠 + 八：上面那一点要够明显、八的两笔要与横**拉开一点**（太近就成「大」了）
+  6:[["M18.6 5.2Q17.8 7.4 17.4 9.2",3.4],["M7.4 13.8H28.6",3.8],
+     ["M15.6 17.6Q12.6 21 10 24",3.4],["M20.4 17.6Q23.4 21 26 24",3.4]],
+  // 七：横 + 乚（下笔先向左下，再沿底右扫、末端轻挑）
+  7:[["M7 11.6H29",4.0],
+     ["M18.2 11.6Q15.6 15.6 13.8 18.8Q12.6 21.8 16.6 22.6Q20.4 23.2 23.6 21.4",3.6]],
+  // 八：两笔**顶部要留缝**（各留 ≥1 单位的空隙，否则圆头一碰就是个「∧」）
+  8:[["M14.4 8.2Q11.6 15.4 9.2 23.2",3.2],["M21.6 8.2Q24.4 15.4 26.8 23.2",3.6]],
+  // 九：丿要足够显眼（右上斜到左下、穿过乙的横）；乙 = 横 + 右竖 + 底部左扫
+  9:[["M21 5.4Q17.6 12 10.6 20.6",3.8],
+     ["M12.8 12.6H23.2V19.4Q23.2 21.8 19.6 21.9L15 21.9",3.6]],
+};
+// 「萬」：艹 + 田 + 下部（冂 的两竖 + 中间的 厶）
+const WAN_GLYPH=[
+  ["M9.4 29.2H26.6",2.1],             // 艹 横
+  ["M13 25.8V31.6",2.1],              // 艹 左竖
+  ["M23 25.8V31.6",2.1],              // 艹 右竖
+  ["M10 32.6H26V40.6",2.1],           // 田：上横折（上边 + 右边）
+  ["M10 32.6V40.6",2.1],              // 田：左边
+  ["M18 27.6V40.6",2.1],              // 田中竖（向上接艹）
+  ["M10 36.6H26",2.1],                // 田：中横
+  ["M10 40.6H26",2.1],                // 田：下横
+  ["M13.4 40.6V47",2.1],              // 下部 左竖
+  ["M22.6 40.6V47",2.1],              // 下部 右竖
+  ["M16.4 46.2Q18 43.8 19.6 42.6Q20.2 44.2 18.8 45.6",1.9],   // 厶：上笔
+  ["M18.8 45.6Q19.8 44.9 21.2 44.5",1.9],                    // 厶：收笔
+];
 function svgWan(n){
-  /* 🔴 万字整体偏低：用**像素扫描**量过（把牌面画进 canvas 再扫不透明像素边界；
-     SVG 的 getBBox 量到的是字体框而不是墨迹，会误判）。原状态每一张的下留白只有 1.33，
-     上留白却有 6.7~13.8 → 整块偏低 2.7~6.3 个单位，正是用户看到的
-     「文字偏靠下、上方空白多于下方」。下面按逐字实测值上移，使上下留白相等。 */
-  // 楷体优先（真牌是楷/行书），逐级回退到系统可用的衬线/黑体
-  const F="'Kaiti SC','STKaiti','KaiTi','楷体','DFKai-SB','TW-Kai','Noto Serif SC','Source Han Serif SC','Songti SC','SimSun',serif";
-  // 真牌：五万用「伍」
-  const top=(n===5)?'伍':WAN_CN[n-1];
-  const cNum='#17458c';        // 数字：蓝
-  const cWan='#b81c26';        // 「萬」：红
-  const f=v=>v.toFixed(1);
-  // 一/二/三：横画少 → 放大字号 + 基线更低，让墨迹居中
-  const bar=n<=3;
-  const nSize=bar?(n===3?25.6:27):22.6;
-  const WAN_DY=[6.25,3.67,3.34,4.42,2.67,3.59,2.92,3.92,2.67];  // 1~9万 各自上移量
-  const dy=WAN_DY[n-1]||0;
-  const nY0=bar?(n===1?24.8:n===2?24.2:24.4):f(23.0);
-  const nY=nY0-dy;
-  let out='';
-  out+=`<text x="18" y="${nY}" text-anchor="middle" font-size="${nSize}"`
-     +` font-weight="600" fill="${cNum}" font-family="${F}" stroke="${cNum}" stroke-width="0.35">${top}</text>`;
-  // [萬] 占下半部，笔画略重（基线上提，保证字身完整落在牌内不被裁切）
-  out+=`<text x="18" y="${(44.8-dy).toFixed(2)}" text-anchor="middle" font-size="22.6"`
-     +` font-weight="700" fill="${cWan}" font-family="${F}" stroke="${cWan}" stroke-width="0.55">萬</text>`;
-  return out;
+  const cNum="#17458c";        // 数字：蓝
+  const cWan="#b81c26";        // 「萬」：红
+  let o="";
+  (WAN_NUM[n]||[]).forEach(s=>{o+=wanS(s[0],s[1],cNum);});
+  WAN_GLYPH.forEach(s=>{o+=wanS(s[0],s[1],cWan);});
+  return o;
 }
 // 统一包上外框 + 渐变定义（每个函数只负责画内容）
 function wrapFace(inner){
