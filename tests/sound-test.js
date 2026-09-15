@@ -10,7 +10,7 @@
  *      只说"调用没抛错"是不够的：配方里参数写错、数组越界，都会被 try/catch 吞掉、
  *      听起来只是"变小声了"，肉眼和耳朵都发现不了；
  *   ③ **挂点接对了吗**：把 SFX.play 换成记录器，再真跑一遍牌局流程（摇色子/发牌/摸打/碰杠胡/
- *      荒庄/抢杠/听牌），断言每个事件都发出了**该发的那一声**，而且"胡→翻鸡→结算"三个音的
+ *      荒庄/抢杠/叫牌），断言每个事件都发出了**该发的那一声**，而且"胡→翻鸡→结算"三个音的
  *      延迟是错开的（0 / 0.75 / 1.1 秒），不是一个音糊在另一个音上。
  */
 const {spawn}=require('child_process');
@@ -244,13 +244,13 @@ const EXPECT={
   // 5.6 抢杠：玩家能抢 → 亮提示音；电脑抢 → 抢杠音
   s=await ev(`(()=>{
     const r={};
-    const tingHand=[0,0,0,1,1,1,2,2,2,3,3,4,4];        // 13 张，听 4
+    const tingHand=[0,0,0,1,1,1,2,2,2,3,3,4,4];        // 13 张，叫 4
     G.hands[0]=emptyC();tingHand.forEach(c=>G.hands[0][c]++);
     G.melds=[[],[{type:'peng',card:4,from:0}],[],[]];
     G.hands[1]=emptyC();G.hands[1][4]=1;G.hands[2]=emptyC();G.hands[3]=emptyC();
     G.phase='discard';G.pendingAction=null;G.actions=[];G.discards=[[4],[],[],[]];
     window.__snd=[];doBuGang(1,4);r.playerQG=window.__snd.slice(0,3);
-    // 换成立家(2)听牌 → 电脑抢
+    // 换成立家(2)叫牌 → 电脑抢
     G.hands[0]=emptyC();[0,1,2,3,5,6,7,8,9,10,11,12,13].forEach(c=>G.hands[0][c]++);
     G.hands[2]=emptyC();tingHand.forEach(c=>G.hands[2][c]++);
     G.melds=[[],[{type:'peng',card:4,from:0}],[],[]];
@@ -263,22 +263,22 @@ const EXPECT={
   ok(s.playerQG[0][0]==='bugang'&&s.playerQG.some(x=>x[0]==='huReady'),'补杠后你能抢杠胡 → 补杠音 + 最亮的提示音');
   ok(s.aiQG.includes('qianggang'),'电脑抢杠胡 → 抢杠音',s.aiQG);
 
-  // 5.7 听牌提示音 / 荒庄
+  // 5.7 叫牌提示音 / 荒庄
   s=await ev(`(()=>{
     const r={};
     G.hands=[[],[],[],[]].map(()=>emptyC());
     [0,0,0,1,1,1,2,2,2,3,3,3,4,4].forEach(c=>G.hands[0][c]++);
     G.melds=[[],[],[],[]];G.discards=[[],[],[],[]];G.phase='discard';G.turn=0;G.pendingAction=null;G.tingFlag=false;
     G.wall=[];for(let i=0;i<20;i++)G.wall.push(i%27);
-    window.__snd=[];discard(0,3);                       // 打出多余的 3 → 成听（听 4）
+    window.__snd=[];discard(0,3);                       // 打出多余的 3 → 成叫牌（叫 4）
     r.ting=window.__snd.map(x=>x[0]).slice(0,3);
     r.isTing=isTing(0);
     window.__snd=[];endGame();r.liuju=window.__snd.map(x=>x[0]).slice(0,2);
     return r;
   })()`);
   console.log('  '+JSON.stringify(s));
-  ok(s.isTing===true,'打出后确实成听（否则这条断言没意义）');
-  ok(s.ting.includes('ting'),'刚听牌 → 金铃提示音',s.ting);
+  ok(s.isTing===true,'打出后确实成叫牌（否则这条断言没意义）');
+  ok(s.ting.includes('ting'),'刚叫牌 → 金铃提示音',s.ting);
   ok(s.liuju.includes('liuju'),'荒庄 → 下行两音',s.liuju);
 
   console.log('\n===== ⑥ 音效开关与全屏按钮不打架 =====');  s=await ev(`(()=>{

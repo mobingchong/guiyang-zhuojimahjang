@@ -498,7 +498,7 @@ body.isName #sndBtn{display:none}
    用户明确要求："结算翻牌的时候，应该是每家手牌原位置翻牌，不要重新排成两排/三排再翻牌"。
    所以侧栏保持原来的一列（flex-direction:column），只是把 .back 换成正面 .tile；
    尺寸沿用**同一套变量**（--side-bw/--side-bh，由 fitBacks 按可用高度算），
-   翻牌前后每一张都在原来的位置上，一眼就能看出他家听了什么。
+   翻牌前后每一张都在原来的位置上，一眼就能看出他家叫了什么。
    ⚠️ 别再加 display:grid + grid-template-columns 那种"平铺重排"——那就是被否掉的做法。 */
 .sideHand.reveal{padding:3px;border-radius:6px;background:rgba(0,0,0,.18)}
 .sideHand .tile{width:var(--side-bw,var(--side-w,22px));height:var(--side-bh,var(--side-h,30px));border-radius:2px}
@@ -507,7 +507,7 @@ body.isName #sndBtn{display:none}
 .topHand .tile{width:var(--top-bw,var(--back-w,22px));height:var(--top-bh,var(--back-h,30px));border-radius:3px}
 .topHand{flex-wrap:nowrap;gap:2px}
 .topHand .tile{flex:0 1 auto;min-width:0}
-/* 亮牌后：赢家那一排泛金光，方便一眼看出他胡的是什么 */
+/* 亮牌后：胡牌家那一排泛金光，方便一眼看出他胡的是什么 */
 .hand.revealWin,.sideHand.revealWin,.topHand.revealWin{
   background:radial-gradient(ellipse at center,rgba(255,215,0,.20),transparent 72%);
   border-radius:8px;padding:2px 5px}
@@ -1198,11 +1198,11 @@ function aiDiscard(hand){
 }
 
 // ===== 电脑玩家 AI 增强（中等偏强档）=====
-// 设计说明：原 aiDiscard(hand) 只做「孤张优先丢」的静态启发，无听牌计算、无防守。
+// 设计说明：原 aiDiscard(hand) 只做「孤张优先丢」的静态启发，无叫牌计算、无防守。
 // 这里新增一套以「向听数」为核心的评估体系，供 aiDiscardSmart(p) 使用。
 // 原 aiDiscard 保留不动，兼容既有测试。
 
-// 向听数：距离胡牌还差几张（-1 = 已胡，0 = 听牌，n = 还差 n 张）
+// 向听数：距离胡牌还差几张（-1 = 已胡，0 = 叫牌，n = 还差 n 张）
 // 算法：递归枚举「拆刻子 / 拆顺子 / 拆对子」，统计每种拆法的
 //       (面子数 m, 搭子数 t, 是否有将 eye)，用标准公式取最优。
 // 公式：shanten = 8 - 2*m - t - (eye?1:0)
@@ -1219,7 +1219,7 @@ function handKey(c,mc){
   for(let i=0;i<27;i++)k+=String.fromCharCode(48+(c[i]>9?9:c[i]));
   return k;
 }
-// 向听数：距离胡牌还差几张（-1 = 已胡，0 = 听牌，n = 还差 n 张）
+// 向听数：距离胡牌还差几张（-1 = 已胡，0 = 叫牌，n = 还差 n 张）
 // 重要：入参 c 必须是【含副露的完整计数】（即 fullCount 的结果）。
 // 因为副露在牌型判定里就等于一副面子，c 里已含这些牌，所以递归拆出的
 // 面子数本身就是「总面子数」，meldCount 只用于限制"还能再拆几副"（4 副面子上限）。
@@ -1305,7 +1305,7 @@ function usefulTiles(hand, melds){
 //    · 这一家打过这张 → 他的现物，不会要 → 0 风险；
 //    · 筋：这一家打过同花色 rank±3 的牌 → 本张打出去被他要的概率下降；
 //    · 中张（3~7）比幺九危险（越靠中间越容易被要）；
-//    · 这一家副露越多 → 越接近听牌 → 风险加码；
+//    · 这一家副露越多 → 越接近叫牌 → 风险加码；
 //    · 别处已现的张（残张少）→ 略微安全。
 function dangerScore(card, self){
   if(G.discards[self].indexOf(card)>=0)return 0;      // 自己打过：不会点自己的炮
@@ -1324,7 +1324,7 @@ function dangerScore(card, self){
     if(rank-3>=0&&d.indexOf(base+rank-3)>=0)suji++;
     if(rank+3<=8&&d.indexOf(base+rank+3)>=0)suji++;
     v-=suji*2.5;
-    // 副露多 = 离听牌近 = 更危险
+    // 副露多 = 离叫牌近 = 更危险
     const mn=(G.melds[p]||[]).length;
     if(mn>=3)v+=3.5; else if(mn>=2)v+=2;
     // 别处已现的张（残张少）→ 略微安全
@@ -1356,8 +1356,8 @@ function dangerWeight(p){
 
 // 番型倾向：手牌越接近高番牌型，加分越多（引导 AI 不轻易放弃大牌）
 function patternBonus(hand, melds, p){
-  // 「做大牌的」才给番型倾向加分；优先听牌的那 70% 直接返回 0 ——
-  // 出牌评分里向听数/进张本来就在前两位，去掉番型加分后它们就是纯效率优先（最快听牌）。
+  // 「做大牌的」才给番型倾向加分；优先叫牌的那 70% 直接返回 0 ——
+  // 出牌评分里向听数/进张本来就在前两位，去掉番型加分后它们就是纯效率优先（最快叫牌）。
   if(typeof G!=='undefined'&&G&&G.aiBig&&!G.aiBig[p])return 0;
   const c=fullCount(hand,melds);
   const total=c.reduce((a,b)=>a+b,0);
@@ -1421,10 +1421,10 @@ function aiDiscardSmart(p){
     const pb=patternBonus(hand,melds,p);
     hand[c]++;
     const danger=dangerScore(c,p);
-    // 自己离听牌越近越该冲（0.55），越远越该收（1.15）；再乘"牌局进度 + 对手副露"权重。
+    // 自己离叫牌越近越该冲（0.55），越远越该收（1.15）；再乘"牌局进度 + 对手副露"权重。
     // 旧版是固定 *14 不随进度变化 → 开局太怂、尾声太莽，正好反了。
-    // 冲/收的强度分三档（麻将常识：**已经听牌就别为了安全拆听**）：
-    //   sh<=0（打完就听）→ 0.18；sh==1 → 0.5；≥2 → 1.15（该收就收）。
+    // 冲/收的强度分三档（麻将常识：**已经叫牌就别为了安全拆叫**）：
+    //   sh<=0（打完就叫牌）→ 0.18；sh==1 → 0.5；≥2 → 1.15（该收就收）。
     const push=(o.sh<=0)?0.18:((o.sh===1)?0.5:1.15);
     let sc = -o.sh*1000 + ut.tiles*12 + ut.types*6 - danger*12*dangerWeight(p)*push + pb;
     if(c===9||c===25) sc += 70;                 // 幺鸡/乌骨鸡不做第一个打出去的（送鸡给叫牌家）
@@ -1469,7 +1469,7 @@ const G={hands:[emptyC(),emptyC(),emptyC(),emptyC()],melds:[[],[],[],[]],discard
   // 当前**所有**可行动作（胡/杠/碰/暗杠/补杠）——同时可选时要一起弹出来让玩家挑；
   // pendingAction 仍保留 = actions[0]，给"有没有待决动作"这类判断用。
   actions:[],
-  // 电脑的牌风：true = 这一局奔大牌（七对/清一色/大对子），false = 优先听牌（效率优先）。
+  // 电脑的牌风：true = 这一局奔大牌（七对/清一色/大对子），false = 优先叫牌（效率优先）。
   // 每局开局按 30% / 70% 给三家电脑随机分派（用户要求：做大牌与小牌比例 30:70）。
   aiBig:[false,false,false,false],
   nextDealer:null,      // 上一局胜家：结算时暂存，**开局才真正换庄**（见 endHandBookkeeping）
@@ -1490,7 +1490,7 @@ const G={hands:[emptyC(),emptyC(),emptyC(),emptyC()],melds:[[],[],[],[]],discard
   hotCannonGang:null,        // 热炮撤销用：记录那名玩家本局刚成的杠副露
   fieldChicken:null,         // 特殊鸡牌（翻牌鸡恰为幺鸡/乌骨鸡则升金鸡）
   winTile:null,              // 本次点炮胡的那张牌（结算时需补进手牌算番型）
-  tingFlag:false,            // 我上一次出牌后是否已听牌（「听牌」提示音只在刚叫牌那一次响）
+  tingFlag:false,            // 我上一次出牌后是否已叫牌（「叫牌」提示音只在刚叫牌那一次响）
   firstDraw:[false,false,false,false] // 各家是否仍是「首次摸牌」（天胡/地胡判定）
 };
 const PLAYER=0,NAMES=['你','下家','对家','上家'];
@@ -1608,7 +1608,7 @@ const SFX=(function(){
                note(t+.02,147,.28,{g:.18,type:'sine',to:110});},
     // 补杠（爬坡豆）：中音双响，听感是"再接一张上去"
     bugang:t=>{hit(t,1050,{dur:.09,q:5,g:.50});hit(t+.11,1400,{dur:.10,q:6,g:.48});},
-    // 听牌 / 叫牌：清脆一声金铃（三度上行，短）
+    // 叫牌 / 叫牌：清脆一声金铃（三度上行，短）
     ting:t=>{note(t,988,.16,{g:.22});note(t+.09,1319,.34,{g:.20,type:'sine'});},
     // 轮到你了：柔和两音（不催人，每回合都会响，必须最轻）
     prompt:t=>{note(t,784,.13,{g:.16});note(t+.11,1047,.22,{g:.15,type:'sine'});},
@@ -1767,7 +1767,7 @@ const Store={
 /* ===================== 取名 ===================== */
 // 自动名字 = 两个字的词 + 两个字的尾巴，一定凑够四个字
 const NAME_A=['清风','明月','青竹','山间','雨后','白鹤','松间','云中','江畔','闲云','金雀','玉竹','墨玉','晨光','夜航','小满','长乐','无忧','自在','白云','碧海','春风','秋月','冬雪','夏雨','老酒','半盏','三两','七里','九歌'];
-const NAME_B=['雀神','牌仙','麻客','牌手','雀圣','将友','麻友','胡神','雀客','牌痴','摸王','听牌','自摸','东风','发财','长胜','顺手','拈花'];
+const NAME_B=['雀神','牌仙','麻客','牌手','雀圣','将友','麻友','胡神','雀客','牌痴','摸王','叫牌','自摸','东风','发财','长胜','顺手','拈花'];
 function randomName(){return NAME_A[(Math.random()*NAME_A.length)|0]+NAME_B[(Math.random()*NAME_B.length)|0];}
 function updateMyName(){NAMES[0]=(Store.data.name||'你');}
 let _nameFirst=false;
@@ -1931,7 +1931,7 @@ function resetHand(){
   G.roundScore=[0,0,0,0]; // 本局清零，累计分 G.scores 保留
   G.chargeChicken=null;G.respChickens=[];G.gangFlower=false;G.fieldChicken=null;G.winTile=null;
   G.bao=[false,false,false,false];G.baoName=['','','',''];G.openFollow=null;
-  G.tingFlag=false;                  // 新的一局：听牌提示重新计数
+  G.tingFlag=false;                  // 新的一局：叫牌提示重新计数
   G.qiangGang=false;G.qiangGangPending=-1;G.hotCannon=false;G.hotCannonGang=null;
   G.revealAll=false;G.result=null;
   G.turn=G.dealer;
@@ -1946,7 +1946,7 @@ function resetHand(){
 // 开一局：庄家摇色子定"从哪开牌" → 按这个位置发牌 → 庄家先拿先出牌。
 // 庄家由上一局胜家接任（见 endHandBookkeeping）；第一局默认你坐庄，连庄则你继续。
 function startHand(){
-  // 电脑牌风：每局重新掷一次 —— 约 30% 做"大牌型"（七对/清一色/大对子），其余 70% 优先听牌。
+  // 电脑牌风：每局重新掷一次 —— 约 30% 做"大牌型"（七对/清一色/大对子），其余 70% 优先叫牌。
   // 玩家自己那一位固定 false：出牌建议走"效率优先"，不然建议会变得难以预料。
   G.aiBig=[0,1,2,3].map(p=>p!==PLAYER&&Math.random()<0.3);
   // 上一局结算时暂存的"胜家坐庄"**在开局这一刻才生效**：这样结算界面上的庄标记
@@ -2002,7 +2002,7 @@ function drawTile(p){
   if(p===PLAYER){
     G.drawn=t;G.phase='discard';render();
     // 报听：不能换牌 —— 摸到什么都必须打掉（只有能自摸时才停下来让玩家点「胡」）。
-    // 因为碰/杠已被禁（见 canMelded），手牌形状始终不变 → 听牌型不会被换掉。
+    // 因为碰/杠已被禁（见 canMelded），手牌形状始终不变 → 叫牌型不会被换掉。
     if(G.bao[PLAYER]){
       if(canHu(G.hands[PLAYER],G.melds[PLAYER],{zimo:true})){
         log(`${G.baoName[PLAYER]}中：摸到 ${cname(t)}，可以自摸胡！`);
@@ -2037,7 +2037,7 @@ function aiTurn(p){
   if(aiWantGang(p))return;              // 杠完会由 doXxxGang 自己安排补摸
   discard(p,aiDiscardSmart(p));
 }
-/* 电脑自己回合的杠：先看补杠（爬坡豆，三家各 3 番），再看暗杠（闷豆，三家各 2 番）。
+/* 电脑自己回合的杠：先看补杠（爬坡豆），再看暗杠（闷豆）。每个豆都是 3 个，
    两个原则：
    ① **不能把牌型搞坏**：暗杠会让手牌少 1 张，用"碰之后"的向听数不比原来差来把关
       （⚠️ 算"杠之后"要记得把杠出来那副面子算进去，别只减手牌 —— 见 shouldPeng 的教训）；
@@ -2096,13 +2096,13 @@ function discard(p,card){
   if(p===PLAYER)G.drawn=null;
   hideTip();          // 打出去了，手牌上方的"建议打 X"提示跟着收掉
   render();checkClaims(p,card);
-  // 听牌提示：玩家自己打出这张之后成听（上一张还没听）→ 一声金铃 + 日志高亮。
-  // G.tingFlag 只在"刚刚叫牌"那一次翻转，所以不会每次出牌都响；被碰掉牌型后再听会再响一次。
+  // 叫牌提示：玩家自己打出这张之后成叫牌（上一张还没叫牌）→ 一声金铃 + 日志高亮。
+  // G.tingFlag 只在"刚刚叫牌"那一次翻转，所以不会每次出牌都响；被碰掉牌型后再叫牌会再响一次。
   if(p===PLAYER){
     const _ting=isTing(PLAYER);
     if(_ting&&!G.tingFlag){
       SFX.play('ting');
-      showTip('你已经听牌了（叫牌）· 黄庄时未听的人要赔你番值',2600);
+      showTip('你已经叫牌了（叫牌）· 黄庄时未叫牌的人要赔你番值',2600);
     }
     G.tingFlag=_ting;
   }
@@ -2231,10 +2231,10 @@ function nextTurn(from){
    返回 true = 有可做的动作（调用方就不再写"轮到你了，请出牌"）。 */
 /* ===== 报听 / 天听 =====
    窗口：本局该玩家**第一次摸完牌、还没出过牌**的那一刻（14 张）。
-   条件：存在一张牌，打掉它之后手牌成"听牌"（即"打一张就听"）。
+   条件：存在一张牌，打掉它之后手牌成"叫牌"（即"打一张就叫牌"）。
    之后（doBaoTing 置位 G.bao[p]）由三处保证规则：
      ① canMelded 直接返回 false → 不能碰、不能杠；
-     ② drawTile 里"摸什么打什么"→ 手牌形状固定不变，听牌型不会被换掉；
+     ② drawTile 里"摸什么打什么"→ 手牌形状固定不变，叫牌型不会被换掉；
      ③ 结算时按 报听 17 / 天听 34 计（取最高）。
    本局第一次摸牌 → 闲家记「天听」34，庄家记「报听」17（用户表注明"庄家不可天听"）。 */
 function canBaoTing(p){
@@ -2249,7 +2249,7 @@ function canBaoTing(p){
     G.hands[p][c]--;
     const ok=isTing(p);
     G.hands[p][c]++;
-    if(ok)return true;                             // 打掉这张就听
+    if(ok)return true;                             // 打掉这张就叫牌
   }
   return false;
 }
@@ -2274,9 +2274,9 @@ function autoGangHint(){
   log('轮到你了：'+tips.join(' / ')+' · 也可以直接出牌');
   return true;
 }
-// 补杠（爬坡豆）：碰过又摸到第 4 张。结算时三家各付 3 番（比闷豆高）
+// 补杠（爬坡豆）：碰过又摸到第 4 张。结算与闷豆同为 3 个（方向看叫牌，见 douSettle）
 // ⚠️ 抢杠胡：补杠的那张牌是「实际打出去的一张牌」，
-//    若正好是别人听的那张，他可以抢胡 —— 由补杠者一家包赔（4 倍）。
+//    若正好是别人叫的那张，他可以抢胡 —— 由补杠者一家包赔（4 倍）。
 //    这是搜狗百科「贵州麻将」词条列明的条款，也让补杠不再是稳赚不赔。
 function doBuGang(p,card){
   G.hands[p][card]-=1;
@@ -2294,7 +2294,7 @@ function doBuGang(p,card){
 // ⚠️ 抢杠不受豆豆通行证限制：
 //   补杠的那张牌等于「别人送上门的一张牌」，与自摸性质相同（都不是你主动点炮），
 //   搜狗百科词条也只对「点炮」设 ≥5 番门槛（热炮条款原文：
-//   「如果听牌者是无豆的平胡依然可以胡」）。故这里传 {zimo:true} 绕过番数门槛。
+//   「如果叫牌者是无豆的平胡依然可以胡」）。故这里传 {zimo:true} 绕过番数门槛。
 function checkQiangGang(gangP,card){
   const order=[];for(let k=1;k<4;k++)order.push((gangP+k)%4);
   for(const p of order){
@@ -2337,7 +2337,7 @@ function doPeng(p,card,from){
   SFX.play('peng');   // 碰：三声"嗒嗒嗒" = 三张牌码齐
   // 责任鸡④：**任何鸡牌**（幺鸡 / 乌骨鸡；本局捉鸡牌在打牌时还没翻出来，故不算）
   //   被打出后被**碰走** → 那副露按 3 张算，打出这张牌的人从此多付 1 分。
-  // ⚠️ 这里只**记录**、不当场判分：① "碰走者要叫牌" 是结算时才定的（他可能此刻还没听、后来才听）；
+  // ⚠️ 这里只**记录**、不当场判分：① "碰走者要叫牌" 是结算时才定的（他可能此刻还没叫牌、后来才叫牌）；
   //    ② "打出者是否未叫" 同理。两个前提都在 chickenSettle ⑤ 里判。
   if(isRespTile(card))G.respChickens.push({from:from,by:p,card:card,how:'碰'});
   // 冲锋鸡③：被碰走 → **责任转移**（持有者候选换成碰走者；结算时若他没叫牌则退回原打出者）
@@ -2436,28 +2436,31 @@ function doHuMulti(list,from,zimo){
      幺鸡 1 分/张（金 2）｜ 乌骨鸡 8筒 1 分/张（金 2）｜ 鸡牌本身（第三门牌）1 分/张
    ⚠️ 一张牌**只按一个身份计一次**：鸡牌恰是幺鸡时，"幺鸡"和"捉鸡牌"是同一张，绝不重复加分。
 
-   ## 三、计数口径 —— ①与②⑤的边界在"按牌种分宽窄"
-   · **常鸡**（幺鸡/8筒，且本局**不是**鸡牌）→ **窄口径**：
+   ## 三、计数口径（用户 2026-09-15 明确：按**牌种**分，不按在手/打出分）
+   · **常鸡 = 幺鸡(1条) / 8筒** —— 只有这两类牌会"赔给叫牌者"：
        叫牌家：手牌 + 副露 + 自己牌河，全算（归自己）；
-       未叫家：**打出的**（牌河）计入叫牌家；**手中保留的**（手牌+副露）**不计**。
-       → ①：未听牌者手里留着的鸡不送人，打出去的白送。
-   · **捉鸡牌**（本局鸡牌那张）→ **宽口径**：无论**在手还是已打出**都算
-       （②「包括已打出的」+ ⑤「无论在手还是已打出」）。
-   · 鸡牌恰是幺鸡/8筒时两类合一 → 按宽口径（⑤明文优先）。
+       未叫家：**打出的**（牌河）计入叫牌家；**手里保留的**（手牌+副露）**不计**。
+       → ①：未叫牌者手里留着的鸡不送人，打出去的白送。
+   · **捉鸡牌**（翻牌 +1 那张，②⑤）→ **不参与"未叫家赔付"**：
+       未叫家的（无论在手还是已打出）**都不算**、不赔给叫牌者；
+       叫牌家自己的**照算**（在手或已被他自己打出都算 —— ⑤原文"无论在手还是已打出"）。
+       → 用户口径："打出去的鸡，1条 和 8筒 才赔给叫牌者，翻牌+1 的那张不赔"。
+   · 鸡牌恰是幺鸡/8筒（即金鸡）时是**同一张牌**：它本身就是幺鸡/8筒 →
+       仍按常鸡走"未叫家打出的才算"，只是**分值 ×2**；绝不重复计两次。
    ⚠️ 副露（碰/杠亮出来的牌）算"保留"不算"打出"——它还在自己门前，被碰走的牌归碰的人。
 
    ## 四、收付方向（①⑤）
    每张归叫牌家的鸡值 v 分，由**每个未叫家各赔 v 分**给该叫牌家。
    → "未叫家打出的鸡"归**每个**叫牌家各一份，所有未叫家各赔一份。
    → 四家都叫牌：没有未叫家 → 鸡分不转移（互不赔）；无人叫牌 → 不结算。
-   注：**叫牌家集合 = 胡牌者 ∪ 听牌者**（③把两者并列，实质同一集合：胡牌者必然叫过牌）。
+   注：**叫牌家集合 = 胡牌者 ∪ 叫牌者**（③把两者并列，实质同一集合：胡牌者必然叫过牌）。
 
    ## 五、冲锋鸡（③）/ 责任鸡（④）—— 独立收付，不走上面这套
    · 冲锋鸡 = 本局**全局第一张**被打出的**幺鸡或乌骨鸡**（一局只有一只，谁先打谁持有）。
      分值 2；本局翻到**金鸡**（金幺鸡 **或** 金乌骨鸡）→ 4。
-     **责任转移**：这张牌被**叫牌家**碰/杠走 → 持有者换成碰走者（前提是"碰走者听牌或胡牌"，
+     **责任转移**：这张牌被**叫牌家**碰/杠走 → 持有者换成碰走者（前提是"碰走者叫牌或胡牌"，
      在结算时判定）；碰走者未叫 → 不转移，仍归原打出者。
-     收付：持有者叫牌 → **其他三家各付 2 分**（含赢家 —— 赢家该付的照付）；
+     收付：持有者叫牌 → **其他三家各付 2 分**（含胡牌家 —— 胡了牌也照样付）；
            持有者未叫 → 他给**每个**叫牌/胡牌玩家各付 2 分。
    · 责任鸡 = 打出的**幺鸡**被**叫牌家碰/杠走** → 那副露按碰 3 / 杠 4 张计入碰走者的鸡分
      （即用户说的"其它家给 3 鸡"），打出这张牌的人**多付 1 分**（"打出的给 4 鸡"）。
@@ -2472,7 +2475,7 @@ const CHARGE_ANY_CHICKEN=true;               // ⚠️ 用户口径（2026-09-15
                                              //    注意责任鸡是**另一条**（只认幺鸡，见 isRespTile）。
 const BAOTING_FAN=17, TIANTING_FAN=34, OPEN_FOLLOW_FAN=4;   // 报听/天听/开局跟 的番值
 /* 报听的口径说明（两个来源有冲突，这里按**用户的表**实现，一行可切）：
-   · 百科《贵阳捉鸡》：「起手牌天听（庄家起手牌或闲家摸第一张牌时听牌）可以报听，此后不能换牌、
+   · 百科《贵阳捉鸡》：「起手牌天听（庄家起手牌或闲家摸第一张牌时叫牌）可以报听，此后不能换牌、
      摸着牌就必须打（也不能杠牌），直到胡牌」+「报听者的牌按清一色 10 番计」；
    · 用户的番表：报听 17 番、天听 34 番（且注明"庄家不可天听"）。
    → 本实现取用户的表：闲家首摸即报听 = 天听 34；庄家开局即报听 = 报听 17。
@@ -2526,7 +2529,7 @@ function chickenSettle(win, lines, total){
   const winList=(Array.isArray(win)?win:[win]).filter(p=>typeof p==='number'&&p>=0&&p<4);   // 可能多家同时胡
   const dry=!total;
   const fc=G.chickenCard;
-  const called=[0,1,2,3].map(p=>winList.includes(p)||isTing(p));   // 叫牌家 = 胡牌者(可多家) ∪ 听牌者
+  const called=[0,1,2,3].map(p=>winList.includes(p)||isTing(p));   // 叫牌家 = 胡牌者(可多家) ∪ 叫牌者
   const callList=[0,1,2,3].filter(p=>called[p]);
   const unList=[0,1,2,3].filter(p=>!called[p]);
   const sur=[0,1,2,3].map(p=>chickenSurvey(p));
@@ -2539,6 +2542,12 @@ function chickenSettle(win, lines, total){
     lines.push(`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${chickenCells(s)}${own?'（'+own+'分）':''}`);
   });
 
+  // 若本局捉鸡牌落在**未叫家**手里/牌河，明细里写明"不赔"，否则玩家会以为漏算
+  if(fc!==null&&fc!==YAOJI&&fc!==WUGUJI){
+    const holders=unList.filter(b=>sur[b].rows.some(r=>r.c===fc&&(r.keep+r.disc)>0));
+    if(holders.length)lines.push(`注：本局捉鸡牌 ${chickenName(fc)} 不赔给叫牌者 → ${holders.map(b=>NAMES[b]).join('、')} 手里/打出的 ${chickenName(fc)} 都不算（只有 幺鸡 / 8筒 才赔）`);
+  }
+
   // ③ 常鸡 / 捉鸡 的收付
   if(!dry){
     if(callList.length&&unList.length){
@@ -2547,8 +2556,13 @@ function chickenSettle(win, lines, total){
         let per=0;                                    // 每个未叫家应付给 a 的分
         sur[a].rows.forEach(r=>{per+=(r.keep+r.disc)*r.v;});                  // a 自己的全归己
         unList.forEach(b=>{
-          // 未叫家：**打出**的都算（规则①）；**保留**的只在"该牌是捉鸡牌"时才算（规则⑤）
-          sur[b].rows.forEach(r=>{per+=r.disc*r.v+(r.wide?r.keep*r.v:0);});
+          // 未叫家贡献给叫牌家的**只有 幺鸡(1条) / 8筒 这两类**：
+          //   · 打出去的     → 算（规则①）
+          //   · 手里保留的   → 不算（规则①后半句：留着的鸡不送人）
+          //   · 本局**捉鸡牌**（翻牌 +1 那张）→ **无论在手还是打出都不算**
+          //     用户 2026-09-15 明确："打出去的鸡，1条 和 8筒 才赔给叫牌者，翻牌+1 的那张不赔"。
+          //   注：捉鸡牌恰是 1条/8筒（金鸡）时，它本身就是幺鸡/8筒 → 仍走本分支，只是分值 ×2。
+          sur[b].rows.forEach(r=>{if(r.c!==YAOJI&&r.c!==WUGUJI)return;per+=r.disc*r.v;});
         });
         if(!per)return;
         unList.forEach(b=>{total[b]-=per;total[a]+=per;});
@@ -2565,9 +2579,9 @@ function chickenSettle(win, lines, total){
   }
 
   // ④ 冲锋鸡（③）—— 本局全局第一张被打出的幺鸡
-  //    持有者：默认 = 打出者；被碰/杠走且**碰走者叫牌**（听牌或胡牌）→ 转移给碰走者。
-  //    ⚠️ 听牌状态在**结算这一刻**才判：碰的当时他还没听、后来听了，也算他叫牌。
-  //    收付：持有者叫牌 → **其他三家各付 2 分**（金鸡 4；含赢家 —— 赢家该付的照付）；
+  //    持有者：默认 = 打出者；被碰/杠走且**碰走者叫牌**（叫牌或胡牌）→ 转移给碰走者。
+  //    ⚠️ 叫牌状态在**结算这一刻**才判：碰的当时他还没叫牌、后来叫牌了，也算他叫牌。
+  //    收付：持有者叫牌 → **其他三家各付 2 分**（金鸡 4；含胡牌家 —— 胡了牌也照样付）；
   //          持有者未叫 → 他给每个叫牌家各付 2 分（鸡分只在"叫牌 ↔ 未叫"之间走）。
   const ch=G.chargeChicken;
   const cvG=(fc===YAOJI||fc===WUGUJI)?4:2;                // ③：翻到金鸡（金幺鸡 或 金乌骨鸡）→ 4 分
@@ -2582,12 +2596,12 @@ function chickenSettle(win, lines, total){
     }
     const what=`${chickenName(ch.card)}${via}`;
     if(called[holder]){
-      // 付款方 = **其他三家**（含赢家！）—— 用户口径："就算胡牌了，该付的照付"。
-      //    冲锋鸡不因为他是赢家就免付（豆和鸡本来也是这样：赢家照收照付，只是净额可能为负）。
+      // 付款方 = **其他三家**（含胡牌家！）—— 用户口径："就算胡牌了，该付的照付"。
+      //    冲锋鸡不因为他胡了牌就免付（豆和鸡本来也是这样：胡牌家照收照付，只是净额可能为负）。
       const payers=[0,1,2,3].filter(q=>q!==holder);
       if(payers.length){
         if(!dry)payers.forEach(q=>{total[q]-=cvG;total[holder]+=cvG;});
-        lines.push(`冲锋鸡：${NAMES[holder]} 打出的第一张${what}（叫牌）→ 其他三家各付 ${cvG} 分（含赢家）`);
+        lines.push(`冲锋鸡：${NAMES[holder]} 打出的第一张${what}（叫牌）→ 其他三家各付 ${cvG} 分（含胡牌家）`);
       }else{
         lines.push(`冲锋鸡：${NAMES[holder]} 的${what}（全场就他一家）→ 无人可付，不结算`);
       }
@@ -2630,48 +2644,77 @@ function chickenSettle(win, lines, total){
   return {detail:sur,called:called,fieldChicken:fc};
 }
 // 热炮（杠上炮）惩罚：「点炮者杠前成的那个豆不算」。
-// 实现在结算时把该玩家本局刚成的那个杠的收益撤销 ——
-// 也就是扣掉他这杠本该收的番（爬坡豆 3×3家 / 闷豆 2×3家 / 点豆 1×1家），
-// 由其他三家反收回来。若找不到那次杠（信息缺失），退化为只按 ×2 番处理。
+// 实现：把该玩家本局刚成的那个杠的收益**整体撤销** —— 直接从 G.douLog 里找那一笔
+//（douSettle 记下的逐家 delta）**精确反向**，所以不管是"收"还是"倒赔"都能撤对，
+// 不必按 2/3/1 去重算（旧写法就是重算，改成统一 3 个之后会算错）。
+// ⚠️ 因此它必须排在 douSettle **之后**调用（见 settle）。
 function hotCannonRepeal(p,lines,total){
   const g=G.hotCannonGang;
   if(!g||g.p!==p)return;
-  let back=0,desc='';
-  if(g.paPo){back=9;desc='爬坡豆 3×3家';}
-  else if(g.from<0){back=6;desc='闷豆 2×3家';}
-  else{back=1;desc='点豆 1×1家';}
-  const each=g.paPo||g.from<0?3:1;
-  if(g.from<0||g.paPo){for(let q=0;q<4;q++)if(q!==p){total[q]+=each;total[p]-=each;}}
-  else{total[g.from]+=1;total[p]-=1;}
-  lines.push(`热炮惩罚：${NAMES[p]} 本局刚成的${desc}不算（撤销 ${back} 番）`);
+  const e=(G.douLog||[]).find(x=>x.p===p&&x.card===g.card&&x.paPo===!!g.paPo);
+  if(!e){
+    lines.push(`热炮惩罚：${NAMES[p]} 本局刚成的那个豆找不到结算记录 → 只按番数 ×2 处理`);
+    return;
+  }
+  for(let q=0;q<4;q++)total[q]-=e.d[q];        // 精确反向：那笔豆整体不算
+  lines.push(`热炮惩罚：${NAMES[p]} 本局刚成的那个豆不算 → 撤销「${e.txt}」`);
 }
-/* ===== 豆（杠）的结算 —— 贵阳捉鸡标准 =====
-   闷豆（暗杠）：其他三家各 2 番；
-   爬坡豆（补杠）：其他三家各 3 番（三种豆里最高）；
-   点豆（明杠）：点杠那家付 1 番。
-   🔴 得豆**必须听牌**才生效：本局是别人胡牌时，没听牌的人这一局"豆"一分不拿。
-      规则原文：「想通过豆拿分，前提是自己必须已经听牌才算有效……如果本局由其他玩家胡牌，
-      而获得豆的玩家自己始终没有进入听牌状态，那么这一局通过暗杠/补杠/明杠所得的豆统统不计分。」
-      胡牌者不受此限（他本来就是听牌胡的）。黄庄时豆、鸡都不算分（走 endGame 的查叫）。
-   ⚠️ 抢杠胡时被抢的那个补杠【没成】：牌在"补杠途中"就被抢走，若照常结算会和抢杠番数互相抵消
-      （实测 +4/-4 被 +1/-1 抵成 +3/-3）→ 跳过它。
+/* ===== 豆（杠）的结算 —— 用户口径（2026-09-15 更新）=====
+   **每个豆一律 3 分**（自杠的闷豆 / 爬坡豆、以及别人放的点豆，都算 3 个），
+   方向由「杠家自己有没有叫牌」决定：
+
+   ┌ 杠家**叫牌** ─────────────────────────────────────
+   │  · 自杠（闷豆 / 转弯豆）→ **其他三家各付 3 个**（最多收 9 个）
+   │  · 点豆（别人放的第四张）→ **只有放杠那家付 3 个**，另外两家不用给
+   └ 杠家**未叫牌** ───────────────────────────────────
+      · 自杠 → 杠家**倒赔给每个叫牌家各 3 个**（三家都叫牌 → 这一个豆共开出去 9 个）
+      · 点豆 → 杠家**倒赔给放杠那家 3 个**（前提：放杠那家也叫牌；他不叫牌就不用给）
+
+   ⚠️ 与旧版的三点不同：① 不再分 2 / 3 / 1，**统一 3**；
+      ② 未叫牌者由"豆不算分"改成**倒赔**；③ 点豆只跟放杠那一家结算，不牵动另外两家。
+   ⚠️ 抢杠胡时被抢的那个补杠【没成】→ 跳过（否则会与抢杠番数互相抵消）。
+   ⚠️ 每笔都记进 G.douLog（含四家逐笔 delta）→ 热炮撤销时**精确反向**，不必重算。
+   黄庄时豆、鸡都不算分（走 endGame 的查叫）。
+
    抽成独立函数的目的：结算规则以后要改只动这里，也能被自测脚本直接调用验证。 */
 function douSettle(win,from,isQG,lines,total){
   const winList=(Array.isArray(win)?win:[win]);
   const skipGang=isQG?{p:from,card:G.winTile}:null;
+  const DOU=3;                                 // 每个豆一律 3 分
+  G.douLog=[];                                 // 本次逐笔明细（供热炮精确反向）
   for(let p=0;p<4;p++){
-    const douOn=winList.includes(p)||isTing(p);          // 得豆需听牌（胡牌者天然算；一炮多响时每家都算）
+    const mine=winList.includes(p)||isTing(p);  // 杠家自己算不算"叫牌"（胡牌者天然算）
     const myGangs=(G.melds[p]||[]).filter(m=>m.type==='gang'&&!m.void);
-    if(myGangs.length&&!douOn){
-      lines.push(`${NAMES[p]} 未听牌：本局 ${myGangs.length} 个豆不算分`);
-      continue;
-    }
     myGangs.forEach(m=>{
       if(skipGang&&p===skipGang.p&&m.card===skipGang.card&&m.paPo)return;
-      // ⚠️ 顺序不能反：补杠的 meld 继承了那副碰的 from（>=0），先判 from 就会把它误算成"点豆 1 番"。
-      if(m.paPo){for(let q=0;q<4;q++)if(q!==p){total[q]-=3;total[p]+=3;}lines.push(`${NAMES[p]} 转弯豆（补杠）${cname(m.card)}：三家各付 3 番`);}
-      else if(m.from>=0){total[m.from]-=1;total[p]+=1;lines.push(`${NAMES[p]} 点豆（明杠）${cname(m.card)}：${NAMES[m.from]}付 1 番`);}
-      else{for(let q=0;q<4;q++)if(q!==p){total[q]-=2;total[p]+=2;}lines.push(`${NAMES[p]} 闷豆 ${cname(m.card)}：三家各付 2 番`);}
+      // ⚠️ 顺序不能反：补杠的 meld 继承了那副碰的 from（>=0），先判 from 会把它误算成"点豆"。
+      const isPoint=(!m.paPo&&m.from>=0);      // 点豆 = 别人放的第 4 张
+      const kind=m.paPo?'转弯豆（补杠）':(isPoint?'点豆（明杠）':'闷豆（暗杠）');
+      // 对手：点豆只跟**放杠那一家**算；自杠跟**其他三家**算
+      const others=isPoint?[m.from]:[0,1,2,3].filter(q=>q!==p);
+      const d=[0,0,0,0];
+      let txt;
+      if(mine){
+        // 杠家叫牌 → 对手付给他
+        others.forEach(q=>{d[q]-=DOU;d[p]+=DOU;});
+        txt=isPoint
+          ? `${NAMES[p]} ${kind}${cname(m.card)}（已叫牌）：放杠的 ${NAMES[m.from]} 付 ${DOU} 个（另外两家不用给）`
+          : `${NAMES[p]} ${kind}${cname(m.card)}（已叫牌）：其他三家各付 ${DOU} 个`;
+      }else{
+        // 杠家未叫牌 → 他**倒赔**给叫牌家（点豆只赔放杠那一家）
+        const recv=others.filter(q=>winList.includes(q)||isTing(q));
+        if(!recv.length){
+          lines.push(isPoint
+            ? `${NAMES[p]} ${kind}${cname(m.card)}：他未叫牌、放杠的 ${NAMES[m.from]} 也没叫牌 → 这个豆不结算（不叫牌不用给）`
+            : `${NAMES[p]} ${kind}${cname(m.card)}：他未叫牌，且场上没有叫牌家 → 这个豆不结算`);
+          return;
+        }
+        recv.forEach(q=>{d[p]-=DOU;d[q]+=DOU;});
+        txt=`${NAMES[p]} ${kind}${cname(m.card)}：他**未叫牌** → 倒赔给 ${recv.map(q=>NAMES[q]).join('、')} 各 ${DOU} 个`;
+      }
+      for(let q=0;q<4;q++)total[q]+=d[q];
+      lines.push(txt);
+      G.douLog.push({p:p,card:m.card,paPo:!!m.paPo,from:m.from,d:d.slice(),txt:txt});
     });
   }
 }
@@ -2742,12 +2785,13 @@ function settle(win,from,zimo,hotCannon){
     }
   });
   if(multi&&!isZimo)lines.push(`（${NAMES[from]} 按每家各自的番数分别赔，合计付 ${sumFan} 番）`);
-  // 热炮附加惩罚：点炮者「杠前成的那个豆不算」——
+  // 热炮附加惩罚：点炮者「杠前成的那个豆不算」—— 必须排在豆结算之后
   // 本局他刚成的那个杠（爬坡豆/闷豆）不参与结算，把它的收益撤销掉。
-  if(isHC)hotCannonRepeal(from,lines,total);
+  // （热炮撤销挪到**豆结算之后**：要用 douSettle 记下的 G.douLog 精确反向）
   G.gangFlower=false;
-  // ---- 豆（杠）结算：闷豆 2 / 爬坡豆 3 / 点豆 1（见 douSettle）----
+  // ---- 豆（杠）结算：**每个豆 3 个**，方向看杠家叫没叫牌（见 douSettle）----
   douSettle(winners,from,isQG,lines,total);
+  if(isHC)hotCannonRepeal(from,lines,total);   // ⚠️ 必须在豆结算之后，见函数头注释
 
   // ---- 捉鸡结算：鸡牌身份 / 归属 / 收付全在 chickenSettle 里（含规则①~⑤，见上方长注释）----
   // 开局跟：三家都跟打同一张 → 跟打的每家从**庄家**收 4 分（庄家共付 12）。
@@ -2784,7 +2828,9 @@ function settle(win,from,zimo,hotCannon){
           pat:{name:info[0].patName,fan:info[0].fan},fan:info[0].fan,zimo:isZimo,detail:det,
           winners:winners.slice(),list:info};
 }
-// 听牌：手牌 3n+1 张时，存在某张牌补进来即可胡（自摸口径，不受豆豆通行证限制）
+// 叫牌：手牌 3n+1 张时，存在某张牌补进来即可胡（自摸口径，不受豆豆通行证限制）
+// ⚠️ 函数名沿用 isTing，但**贵阳叫法是"叫牌"**：本项目对玩家可见的一切文案
+//（界面 / 日志 / 结算明细 / 文档）都写「叫牌 / 未叫牌」，不出现"听牌"。
 function isTing(p){
   const n=G.hands[p].reduce((a,b)=>a+b,0);
   if(n%3!==1)return false;
@@ -2796,7 +2842,7 @@ function isTing(p){
   }
   return false;
 }
-/* 叫牌（听牌）后的**牌型番值**：取各张能胡的牌里最高的那个番型。
+/* 叫牌（叫牌）后的**牌型番值**：取各张能胡的牌里最高的那个番型。
    用于荒庄查叫（未叫牌者要赔给叫牌者"对应番值"）。
    ⚠️ 取最高是常见约定（对叫牌者有利）；若要按最低/指定某张算，改这里一处即可。 */
 function tingFan(p){
@@ -2813,8 +2859,8 @@ function tingFan(p){
   }
   return {fan:fan||1,name:name||'平胡'};
 }
-/* 黄庄（荒庄）查叫：未叫牌（未听牌）者赔给每个叫牌者「其听牌牌型的番值」。
-   规则原文：「牌摸完后无人胡牌叫黄庄，需查牌确定玩家是否叫牌(及听牌)及叫牌后的牌型番数……
+/* 黄庄（荒庄）查叫：未叫牌（未叫牌）者赔给每个叫牌者「其叫牌牌型的番值」。
+   规则原文：「牌摸完后无人胡牌叫黄庄，需查牌确定玩家是否叫牌(及叫牌)及叫牌后的牌型番数……
    若有人叫牌、有人未叫牌，未叫牌玩家需分别赔付每个叫牌玩家对应的番值；黄庄后所有豆鸡不算分」。
    ⚠️ 番值取"能胡的各张牌里最高的那个番型"（常见约定，对叫牌者有利）；改口径只动 tingFan。 */
 function chajiaoSettle(lines,total){
@@ -2827,7 +2873,7 @@ function chajiaoSettle(lines,total){
       lines.push(`${NAMES[t]} 叫牌（${pf.name} ${pf.fan} 番）：未叫牌的 ${noL.map(n=>NAMES[n]).join('、')} 各赔 ${pf.fan} 番`);
     });
   }else if(!tingL.length){
-    lines.push('四家都没叫牌（都没听牌），查叫不计分');
+    lines.push('四家都没叫牌（都没叫牌），查叫不计分');
   }else{
     lines.push('四家都叫牌了，查叫互相不赔');
   }
@@ -2837,7 +2883,7 @@ function chajiaoSettle(lines,total){
 function endGame(){
   G.phase='over';
   /* ===== 黄庄（荒庄）查叫 =====
-     贵阳捉鸡规则：「牌摸完后无人胡牌叫黄庄，需查牌确定玩家是否叫牌(及听牌)及叫牌后的
+     贵阳捉鸡规则：「牌摸完后无人胡牌叫黄庄，需查牌确定玩家是否叫牌(及叫牌)及叫牌后的
      牌型番数……若有人叫牌、有人未叫牌，未叫牌玩家需分别赔付每个叫牌玩家对应的番值；
      黄庄后所有『豆』『鸡』不算分」。 */
   const lines=[],total=[0,0,0,0];
@@ -2853,7 +2899,7 @@ function endGame(){
   G.result={winner:-1,winTile:-1,ting:tingL.slice()};
   endHandBookkeeping(-1);            // 荒庄：庄家连庄，局数照样记一笔
   render();
-  // 荒庄也要亮牌：牌墙摸完了，四家都是什么牌、谁听谁没听，摊开才看得明白
+  // 荒庄也要亮牌：牌墙摸完了，四家都是什么牌、谁叫牌谁没叫牌，摊开才看得明白
   let main=`<div class="line"><span>牌墙已摸完，无人胡牌</span></div>`;
   lines.forEach(l=>main+=`<div class="line"><span>${l}</span></div>`);
   let side=`<div class="rScores">`;
@@ -2882,7 +2928,8 @@ function setResultBox(inner){
     +inner
     +`<div class="peekHint">点窗体看明细（再点窗外的空白处收回角落）· 点右上角「×」关掉</div>`;
 }
-// 打开结算窗（展开态）并安排 3.2 秒后自动收起，不挡着看牌
+// 打开结算窗（展开态）。**没有任何自动收起定时器** —— 只有用户动作才改变状态
+// （点窗体=展开 / 点窗外空白=收回角落 / 点「×」=关闭；当年那个 3.2 秒 setTimeout 已删）。
 function openResult(){
   const r=document.getElementById('result');
   if(!r||!r.style)return;
@@ -3998,7 +4045,7 @@ function render(){
   const mm=document.getElementById('myMelds');mm.innerHTML='';
   G.melds[PLAYER].forEach(m=>mm.appendChild(meldEl(m,false)));
   // 三家手牌 + 副露（正面，摆在自己一侧，方便查看别人碰杠了什么）
-  // 完局（phase==='over'）或玩家手动亮牌后，三家手牌全部翻正面：能看清每家到底听了什么、差哪张
+  // 完局（phase==='over'）或玩家手动亮牌后，三家手牌全部翻正面：能看清每家到底叫了什么、差哪张
   const reveal=(G.phase==='over'||G.revealAll===true);
   // 座位映射：**左＝上家(3)、右＝下家(1)**、上＝对家(2)。
   // 这样 turn 递增（p+1）在屏幕上看就是**逆时针** —— 麻将的取牌/出牌方向。
@@ -4156,7 +4203,7 @@ function render(){
           mkBtn('过','gray',()=>passQiangGang(),'不能胡这手牌');
       }else if(a.type==='gang')mkBtn('杠','',()=>doGang(PLAYER,a.card,a.from),'可杠 '+cname(a.card));
       else if(a.type==='peng')mkBtn('碰','',()=>doPeng(PLAYER,a.card,a.from),'可碰 '+cname(a.card));
-      else if(a.type==='angang')mkBtn('暗杠','gray',()=>doAnGang(PLAYER,a.card),'可暗杠 '+cname(a.card)+'（闷豆，三家各 2 番）');
+      else if(a.type==='angang')mkBtn('暗杠','gray',()=>doAnGang(PLAYER,a.card),'可暗杠 '+cname(a.card)+'（闷豆：叫牌三家各付 3 个）');
       else if(a.type==='bugang')mkBtn('补杠','gray',()=>doBuGang(PLAYER,a.card),'可补杠 '+cname(a.card)+'（爬坡豆，三家各 3 番）');
     });
     // "过"：吃掉别人打出的牌 → 轮到下家；自己回合的动作 → 继续出牌
@@ -4166,10 +4213,10 @@ function render(){
       mkBtn('过','gray',()=>passClaim());
     }
   }else if(G.phase==='discard'&&G.turn===PLAYER){
-    // 报听 / 天听：本局第一次摸完牌、还没出牌时"打一张就能听" → 出现这个按钮
+    // 报听 / 天听：本局第一次摸完牌、还没出牌时"打一张就能叫牌" → 出现这个按钮
     if(canBaoTing(PLAYER))
       mkBtn(G.dealer===PLAYER?'报听':'天听','red',()=>doBaoTing(PLAYER),
-        (G.dealer===PLAYER?'报听':'天听')+'：手牌已听，此后摸什么打什么、不能碰杠（'+baoFanOf(PLAYER)+' 番）');
+        (G.dealer===PLAYER?'报听':'天听')+'：手牌已叫牌，此后摸什么打什么、不能碰杠（'+baoFanOf(PLAYER)+' 番）');
     if(canZimo){
       // 自摸预览：番数已含「自摸 +1」
       const zp=currentPattern(G.hands[PLAYER],G.melds[PLAYER],{zimo:true,gangFlower:G.gangFlower});
@@ -4180,10 +4227,10 @@ function render(){
     for(let i=0;i<27;i++){
       // 暗杠：手里4张（且杠完仍能留下手牌、总数不超限）
       if(G.hands[PLAYER][i]>=4&&canMelded(PLAYER,'angang'))
-        mkBtn('暗杠'+cname(i),'gray',()=>doAnGang(PLAYER,i),'闷豆：三家各 2 番');
+        mkBtn('暗杠'+cname(i),'gray',()=>doAnGang(PLAYER,i),'闷豆：叫牌时三家各付 3 个；未叫牌则倒赔叫牌家');
     }
     // 补杠：已碰过某张且又摸到第 4 张（只消耗 1 张手牌）
-    G.melds[PLAYER].forEach(m=>{if(m.type==='peng'&&G.hands[PLAYER][m.card]>=1&&canMelded(PLAYER,'bugang'))mkBtn('补杠'+cname(m.card),'gray',()=>doBuGang(PLAYER,m.card),'爬坡豆：三家各 3 番（最高，但有被抢杠的风险）');});
+    G.melds[PLAYER].forEach(m=>{if(m.type==='peng'&&G.hands[PLAYER][m.card]>=1&&canMelded(PLAYER,'bugang'))mkBtn('补杠'+cname(m.card),'gray',()=>doBuGang(PLAYER,m.card),'爬坡豆：叫牌时三家各付 3 个（有被抢杠的风险）');});
   }
   // 我的手牌：按可用宽度缩放，永远一行（最多 14 张）
   fitRow(mh,{ratio:1.36,varName:'--tw'});

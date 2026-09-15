@@ -385,9 +385,9 @@ function ok(cond,label,extra){ if(cond){PASS++;console.log('  ✅ '+label);} els
      '自己回合能自摸又能暗杠时两个按钮都在：'+s.zimoAnGang.btns.join('/'));
   ok(s.pass.before===2&&s.pass.after===0&&s.pass.pending===null,'点「过」会清掉全部待决动作');
 
-  console.log('\n===== ⑮ 豆（杠）的结算 + 得豆必须听牌 =====');
-  // 闷豆(暗杠) 三家各 2 番；爬坡豆/转弯豆(补杠) 三家各 3 番；点豆(明杠) 点杠那家 1 番。
-  // 硬规则：得豆必须听牌才生效（本局是别人胡牌时）。
+  console.log('\n===== ⑮ 豆（杠）的结算：每个豆一律 3 个，方向看杠家叫没叫牌 =====');
+  // 每个豆一律 3 个。杠家叫牌 → 对手付给他；杠家未叫牌 → 他**倒赔**给叫牌家。
+  // 点豆（别人放的第 4 张）只跟**放杠那一家**算，另外两家不牵动。
   s=await ev(`(()=>{
     const tingHand=[0,0,0,1,1,1,2,2,2,3];
     const notTingHand=[0,2,3,6,9,12,15,18,21,24];
@@ -400,29 +400,37 @@ function ok(cond,label,extra){ if(cond){PASS++;console.log('  ✅ '+label);} els
       G.qiangGang=false;G.gangFlower=false;G.hotCannonGang=null;G.dealer=0;
       render();
     };
-    const run=(meld1,hand1)=>{
+    const run=(meld1,hand1,win)=>{
       prep(meld1,hand1);
       const lines=[],total=[0,0,0,0];
-      douSettle(0,-1,false,lines,total);
+      douSettle(win===undefined?0:win,-1,false,lines,total);
       return {total:total,lines:lines};
     };
-    prep({type:'gang',card:5,from:-1},tingHand);   // 先摆好状态再判听牌（否则判的是上一条用例的残留状态）
+    prep({type:'gang',card:5,from:-1},tingHand);   // 先摆好状态再判叫牌（否则判的是上一条用例的残留状态）
     const ting=isTing(1);
-    const bu=run({type:'gang',card:5,from:0,paPo:true},tingHand);
-    const an=run({type:'gang',card:5,from:-1},tingHand);
-    const mg=run({type:'gang',card:5,from:3},tingHand);
-    const off=run({type:'gang',card:5,from:0,paPo:true},notTingHand);
-    return {ting:ting,bu:bu,an:an,mg:mg,off:off};
+    const bu=run({type:'gang',card:5,from:0,paPo:true},tingHand);        // 补杠（自杠），1 号叫牌
+    const an=run({type:'gang',card:5,from:-1},tingHand);                 // 暗杠（自杠），1 号叫牌
+    const mg=run({type:'gang',card:5,from:3},tingHand);                  // 点豆，1 号叫牌，放杠者=3
+    const offBu=run({type:'gang',card:5,from:0,paPo:true},notTingHand);  // 补杠，1 号**未**叫牌
+    const offMgNoTing=run({type:'gang',card:5,from:3},notTingHand);      // 点豆，1 号未叫牌、放杠者 3 也没叫牌
+    const offMgTing=run({type:'gang',card:5,from:0},notTingHand,0);      // 点豆，1 号未叫牌、放杠者 0 是"胡牌者"
+    return {ting:ting,bu:bu,an:an,mg:mg,offBu:offBu,offMgNoTing:offMgNoTing,offMgTing:offMgTing};
   })()`);
   console.log('  '+JSON.stringify(s));
-  ok(s.ting===true,'构造的手牌确实是听牌（isTing=1）');
+  ok(s.ting===true,'构造的手牌确实是叫牌（isTing=1）');
   ok(s.bu.total[1]===9&&s.bu.total[0]===-3&&s.bu.total[2]===-3&&s.bu.total[3]===-3,
-     '爬坡豆（补杠）：三家各付 3 番 → 1 号 +9（实际 '+JSON.stringify(s.bu.total)+'）');
-  ok(s.an.total[1]===6&&s.an.total[0]===-2,'闷豆（暗杠）：三家各付 2 番 → 1 号 +6');
-  ok(s.mg.total[1]===1&&s.mg.total[3]===-1&&s.mg.total[0]===0&&s.mg.total[2]===0,
-     '点豆（明杠）：只有点杠那家付 1 番（实际 '+JSON.stringify(s.mg.total)+'）');
-  ok(s.off.total.every(v=>v===0)&&s.off.lines.some(l=>/未听牌/.test(l)),
-     '未听牌 → 本局豆一分不算，并在明细里说明');
+     '补杠（自杠·叫牌）：其他三家各付 3 个 → 1 号 +9（实际 '+JSON.stringify(s.bu.total)+'）');
+  ok(s.an.total[1]===9&&s.an.total[0]===-3&&s.an.total[2]===-3&&s.an.total[3]===-3,
+     '暗杠（自杠·叫牌）：其他三家各付 3 个 → 1 号 +9（与补杠**同分**，不再分 2/3）',JSON.stringify(s.an.total));
+  ok(s.mg.total[1]===3&&s.mg.total[3]===-3&&s.mg.total[0]===0&&s.mg.total[2]===0,
+     '点豆（叫牌）：**只有放杠那家付 3 个**，另外两家一分不牵动（实际 '+JSON.stringify(s.mg.total)+'）');
+  ok(s.offBu.total[1]===-3&&s.offBu.total[0]===3&&s.offBu.total[2]===0&&s.offBu.total[3]===0,
+     '自杠但杠家**未叫牌** → 倒赔给叫牌家各 3 个（1 号 −3、胡家 0 号 +3）',JSON.stringify(s.offBu.total));
+  ok(s.offBu.lines.some(l=>/未叫牌/.test(l)&&/倒赔/.test(l)),'明细写明"未叫牌 → 倒赔"',s.offBu.lines);
+  ok(s.offMgNoTing.total.every(v=>v===0)&&s.offMgNoTing.lines.some(l=>/不叫牌不用给/.test(l)),
+     '点豆 + 杠家未叫牌 + 放杠者也没叫牌 → 不结算（"不叫牌不用给"）',s.offMgNoTing);
+  ok(s.offMgTing.total[1]===-3&&s.offMgTing.total[0]===3,
+     '点豆 + 杠家未叫牌 + 放杠者是叫牌家 → 倒赔给放杠那家 3 个',JSON.stringify(s.offMgTing.total));
 
   console.log('\n===== ⑯ 荒庄查叫：未叫牌者赔给叫牌者 =====');
   s=await ev(`(()=>{
@@ -440,7 +448,7 @@ function ok(cond,label,extra){ if(cond){PASS++;console.log('  ✅ '+label);} els
     return {tingL:info.tingL,noL:info.noL,fan:tf,lines:lines,total:total};
   })()`);
   console.log('  '+JSON.stringify(s));
-  ok(s.tingL.length===1&&s.tingL[0]===0&&s.noL.length===3,'只有 0 号叫牌（听牌），其余三家未叫');
+  ok(s.tingL.length===1&&s.tingL[0]===0&&s.noL.length===3,'只有 0 号叫牌（叫牌），其余三家未叫');
   ok(s.fan.fan>=1,'叫牌番值算出来了：'+s.fan.name+' '+s.fan.fan+' 番');
   ok(s.total[0]===s.fan.fan*3&&s.total[1]===-s.fan.fan,
      '未叫的三家各赔叫牌者的番值（0 号 +'+s.total[0]+'，其余各 '+s.total[1]+'）');
@@ -526,7 +534,7 @@ function ok(cond,label,extra){ if(cond){PASS++;console.log('  ✅ '+label);} els
     G.hands[1]=h2;G.melds[1]=[];
     G.aiBig[1]=true;                    // 明确按"做大牌风"断言（七对门槛只对他生效）
     const pairPeng=shouldPeng(1,0);
-    G.aiBig[1]=false;                    // 同一副牌，"优先听牌风"就应该碰（不再为七对让路）
+    G.aiBig[1]=false;                    // 同一副牌，"优先叫牌风"就应该碰（不再为七对让路）
     const pairPengFast=shouldPeng(1,0);
     G.aiBig[1]=true;
     // ③ 已有 4 副露 → 没位置了
@@ -542,7 +550,7 @@ function ok(cond,label,extra){ if(cond){PASS++;console.log('  ✅ '+label);} els
   console.log('  '+JSON.stringify(s));
   ok(s.clearPeng===true,'明显该碰的手牌，AI 会碰（旧写法这里返回 false）');
   ok(s.pairPeng===false,'手里 4 对且没副露 → 保留七对路线，不碰');
-  ok(s.pairPengFast===true,'同一副牌换"优先听牌风" → 该碰就碰（不为七对让路）');
+  ok(s.pairPengFast===true,'同一副牌换"优先叫牌风" → 该碰就碰（不为七对让路）');
   ok(s.fullPeng===false,'已有 4 副露 → 没位置碰');
   ok(s.after<=s.before,'碰之后的向听数不比碰之前差（'+s.before+' → '+s.after+'）');
 

@@ -55,15 +55,15 @@ const T=p=>JSON.stringify(p);
 
   // 页面内测试脚手架：__mk 摆好状态，__run 跑结算并回收结果
   await ev(`(()=>{
-    window.__JUNK=[0,2,4,6,8,10,12,14,16,18,20,22,24];      // 13 张全孤张 → 一定不是听牌
-    window.__TING13=[0,0,0,1,1,1,2,2,2,3,3,4,4];            // 13 张，听 4（叫牌家）
+    window.__JUNK=[0,2,4,6,8,10,12,14,16,18,20,22,24];      // 13 张全孤张 → 一定不是叫牌
+    window.__TING13=[0,0,0,1,1,1,2,2,2,3,3,4,4];            // 13 张，叫 4（叫牌家）
     window.__mk=(o)=>{
       o=o||{};
       G.hands=[[],[],[],[]].map(()=>emptyC());G.melds=[[],[],[],[]];G.discards=[[],[],[],[]];
       G.wall=[];G.winTile=null;G.chargeChicken=null;G.respChickens=[];
       G.chickenCard=(o.fc===undefined?5:o.fc);               // 默认翻 5万 → 鸡牌 6万
       // 默认四家都是 13 张孤张（保证"未叫"）；o.hand 是在这基础上**加牌**，
-      // o.setHand 才是整手替换（造"听牌"才用它）。
+      // o.setHand 才是整手替换（造"叫牌"才用它）。
       // ⚠️ 别拿"只给 1 张牌"当未叫家的手牌：1 张补 1 张就是一对，canHuShape 会判 true
       //    → isTing 变真 → 那家成了"叫牌家"，整条用例就反了（实测踩过一次）。
       [0,1,2,3].forEach(p=>__JUNK.forEach(c=>G.hands[p][c]++));
@@ -89,7 +89,7 @@ const T=p=>JSON.stringify(p);
   const run=async(winner,opts)=>await ev(`JSON.parse(JSON.stringify(__run(${winner},${JSON.stringify(opts)})))`);
   // ⚠️ 传给 __run 的 opts 是在 **Node 侧** JSON.stringify 的，所以不能引用页面里的 window.__TING13
   //    （Node 里没有这个变量 → ReferenceError）。这里用 Node 侧字面量重写一遍。
-  const TING13={0:3,1:3,2:3,3:2,4:2};   // 13 张，听 5万（叫牌）
+  const TING13={0:3,1:3,2:3,3:2,4:2};   // 13 张，叫 5万（叫牌）
   const TING10={0:3,1:3,2:3,3:1};       // 10 张 + 1 副露（碰/杠），单钓 4万（叫牌）
 
   console.log('\n===== ① 归属：未叫家【打出的】鸡计入叫牌家；【手里保留的】不计 =====');
@@ -99,29 +99,34 @@ const T=p=>JSON.stringify(p);
   ok(-s.total[1]===2,'叫牌家每个未叫家收 2 分（自身幺鸡 1 + 未叫家打出的幺鸡 1）',-s.total[1]);
   ok(s.total[0]===6,'叫牌家总收 2 分 × 3 家 = 6',s.total[0]);
   ok(T(s.total.slice(1))===T([-2,-2,-2]),'三个未叫家各赔 2 分',s.total.slice(1));
-  ok(s.p0.slice(1).every(v=>v===false),'（前置）三个未叫家确实没听牌',s.p0);
+  ok(s.p0.slice(1).every(v=>v===false),'（前置）三个未叫家确实没叫牌',s.p0);
   ok(s.total.reduce((a,b)=>a+b,0)===0,'收付守恒（合计 0）');
   s=await run(0,{fc:5,hand:{0:{9:1},1:{9:2}},disc:{1:[9]}});
   ok(-s.total[1]===2,'未叫家**手里保留**的 2 张幺鸡**不**计入（仍是 2 分/家，不是 5 分）',-s.total[1]);
   ok(/下家［未叫］留/.test(s.lines.join('|')),'明细里分别写清"留"与"打"');
   ok(s.lines.some(l=>/留 幺鸡\(1条\)×2/.test(l)),'下家明细含「留 幺鸡×2」（用桌上的叫法，不写 1条）',s.lines);
 
-  console.log('\n===== ② 捉鸡（翻牌鸡）：宽口径 —— 无论在手还是已打出都要赔 =====');
+  console.log('\n===== ② 捉鸡牌（翻牌 +1 那张）→ **不赔给叫牌家**（用户 2026-09-15 明确） =====');
+  // 鸡牌=6万：只有**叫牌家自己**的 6万 算；未叫家的（在手或打出）都不算
   s=await run(0,{fc:5,hand:{0:{5:1},1:{5:2}},disc:{1:[5]}});
-  // 你：自身 6万×1；下家：留 6万×2 + 打出 6万×1 → 全部计入
   console.log('  你 应收/每个未叫家 = '+(-s.total[1]));
-  ok(-s.total[1]===4,'捉鸡牌在未叫家**手里保留**的 2 张也要赔（1+2+1=4 分/家）',-s.total[1]);
-  ok(s.total[0]===12&&s.total.reduce((a,b)=>a+b,0)===0,'收付 12 / 守恒',[s.total[0]]);
+  ok(-s.total[1]===1,'未叫家**手里留的 2 张 + 打出的 1 张** 捉鸡牌都不赔（只剩叫牌家自己那 1 张 → 1 分/家）',-s.total[1]);
+  ok(s.total[0]===3&&s.total.reduce((a,b)=>a+b,0)===0,'收付 3 / 守恒',[s.total[0]]);
+  s=await run(0,{fc:5,disc:{1:[5]}});
+  ok(-s.total[1]===0,'未叫家**打出的**捉鸡牌也不赔（叫牌家自己一张都没有 → 0 分）',-s.total[1]);
+  ok(s.lines.some(l=>/捉鸡牌 6万 不赔给叫牌者/.test(l)),'明细写明"捉鸡牌不赔"（否则玩家以为漏算）',s.lines);
   s=await run(0,{fc:null,hand:{0:{5:1},1:{5:2}},disc:{1:[5]}});
   ok(-s.total[1]===0,'牌墙已空（没翻到鸡牌）时，6万 不再是鸡 → 0 分',-s.total[1]);
 
-  console.log('\n===== ③ 金鸡：翻牌鸡恰为幺鸡/8筒 → 宽口径 + 2 分/张（且不重复计分） =====');
+  console.log('\n===== ③ 金鸡：翻牌鸡恰为幺鸡/8筒 → 该牌种 2 分/张（且不重复计分） =====');
   s=await run(0,{fc:9,hand:{0:{9:1},1:{9:2}}});   // 翻牌鸡 = 幺鸡本身
   console.log('  你 应收/每个未叫家 = '+(-s.total[1]));
-  ok(-s.total[1]===6,'金幺鸡 2 分/张：自身 1 张(2) + 未叫家保留 2 张(2×2) = 6 分/家',-s.total[1]);
+  ok(-s.total[1]===2,'金幺鸡 2 分/张：幺鸡本身就是常鸡 → 只有叫牌家自己那 1 张算（未叫家**留着的** 2 张不算）',-s.total[1]);
   ok(-s.total[1]!==9,'幺鸡**没有**被算两次（不是"常鸡 1 + 捉鸡 1"叠加）',-s.total[1]);
+  s=await run(0,{fc:9,disc:{1:[9]}});             // 未叫家打出金幺鸡 → 常鸡通道，算
+  ok(-s.total[1]===2,'金幺鸡被未叫家**打出** → 仍按常鸡赔给叫牌家（2 分/张）',-s.total[1]);
   s=await run(0,{fc:25,hand:{0:{25:1},1:{25:1}}});
-  ok(-s.total[1]===4,'金乌骨鸡（翻牌鸡=8筒）2 分/张：自身 2 + 未叫家保留 2 = 4 分/家',-s.total[1]);
+  ok(-s.total[1]===2,'金乌骨鸡（翻牌鸡=8筒）2 分/张：只有叫牌家自己那张算',-s.total[1]);
   s=await run(0,{fc:5,hand:{0:{9:1,25:1}}});
   ok(-s.total[1]===2,'非金鸡时：幺鸡 1 分/张、8筒 1 分/张（不再是旧版的 2 分）',-s.total[1]);
 
@@ -146,7 +151,7 @@ const T=p=>JSON.stringify(p);
   ok(s.lines.some(l=>/全场无人叫牌/.test(l)),'明细里说明"不结算"',s.lines);
 
   console.log('\n===== ⑤ 责任鸡：鸡牌被【叫牌家】碰走 → 打出者多付 1 分（两个前提都要满足）=====');
-  // 前提①：碰走者必须叫牌。对家(2) 听牌 → 成立
+  // 前提①：碰走者必须叫牌。对家(2) 叫牌 → 成立
   s=await run(0,{fc:5,setHand:{2:TING13},resp:{from:1,by:2,card:9,how:'碰'}});
   ok(s.p0[2]===true,'（前置）对家确实叫牌');
   ok(s.total[1]===-1&&s.total[2]===1,'责任鸡：打出者多付 1 分给碰走的人',[s.total[1],s.total[2]]);
@@ -187,8 +192,8 @@ const T=p=>JSON.stringify(p);
   s=await run(0,{fc:5,setHand:{2:TING13},charge:{p:2,card:9,via:'碰',from:1}});
   ok(s.p0[2]===true,'（前置）碰走者（对家）叫牌');
   ok(s.total[2]===6&&s.total[1]===-2&&s.total[3]===-2,
-     '责任转移成功：碰走者向其他三家各收 2 分（含赢家）',[s.total[1],s.total[2],s.total[3]]);
-  ok(s.total[0]===-2,'赢家也照付冲锋鸡的钱',s.total[0]);
+     '责任转移成功：碰走者向其他三家各收 2 分（含胡牌家）',[s.total[1],s.total[2],s.total[3]]);
+  ok(s.total[0]===-2,'胡牌家也照付冲锋鸡的钱',s.total[0]);
   ok(s.lines.some(l=>/责任已转移/.test(l)),'明细写出"责任已转移"',s.lines);
   // 乌骨鸡作冲锋鸡时同样转移（乌骨鸡"参与冲锋鸡"）
   s=await run(0,{fc:5,setHand:{2:TING13},charge:{p:2,card:25,via:'碰',from:1}});
@@ -198,10 +203,10 @@ const T=p=>JSON.stringify(p);
   ok(s.p0[2]===false,'（前置）碰走者未叫牌');
   ok(s.total[0]===2&&s.total[1]===-2,'碰走者未叫 → 不转移，仍归原打出者（他未叫 → 给叫牌家付 2）',[s.total[0],s.total[1]]);
   ok(s.lines.some(l=>/不转移/.test(l)),'明细写出"不转移"',s.lines);
-  // **赢家也照付**：持有者是叫牌家 → 其他三家（含赢家）各付 2
+  // **胡牌家也照付**：持有者是叫牌家 → 其他三家（含胡牌家）各付 2
   s=await run(0,{fc:5,setHand:{1:TING13},charge:{p:1,card:9}});
-  ok(s.p0[1]===true,'（前置）下家听牌未胡');
-  ok(s.total[0]===-2,'赢家也照付（不因为是赢家就免付）',s.total[0]);
+  ok(s.p0[1]===true,'（前置）下家已叫牌（但没胡）');
+  ok(s.total[0]===-2,'胡牌家也照付（不因为胡了牌就免付）',s.total[0]);
   ok(s.total[1]===6&&s.total[2]===-2&&s.total[3]===-2,'持有者叫牌 → 其他三家各付 2（共 6）',[s.total[1],s.total[2],s.total[3]]);
   // 「其它家给 3 鸡、打出的给 4 鸡」端到端：叫牌家的副露里有 3 张幺鸡（碰走的）
   s=await run(0,{fc:5,setHand:{2:TING10},meld:{2:[{type:'peng',card:9,from:1}]},
@@ -221,7 +226,7 @@ const T=p=>JSON.stringify(p);
   console.log('\n===== ⑥ 边界：四家都叫牌 / 无人叫牌 / 荒庄只统计不落分 =====');
   s=await run(0,{fc:5,hand:{0:{9:1},1:{}},disc:{1:[9]}});
   ok(s.total.reduce((a,b)=>a+b,0)===0,'任何情况下收付守恒');
-  // 四家都听牌（含胡牌者）→ 没有未叫家 → 鸡分不转移
+  // 四家都叫牌（含胡牌者）→ 没有未叫家 → 鸡分不转移
   s=await ev(`(()=>{
     __mk({fc:5,hand:{0:{9:1}}});
     const TH=[0,0,0,1,1,1,2,2,2,3,3,4,4];
@@ -230,7 +235,7 @@ const T=p=>JSON.stringify(p);
     chickenSettle(0,lines,total);
     return {total:total,lines:lines,ting:[0,1,2,3].map(p=>isTing(p))};
   })()`);
-  ok(s.ting.slice(1).every(v=>v===true),'（前置）三家都听牌',s.ting);
+  ok(s.ting.slice(1).every(v=>v===true),'（前置）三家都叫牌',s.ting);
   ok(s.total.every(v=>v===0),'四家都叫牌 → 鸡分不转移（互不赔，含自己手里的鸡也不算）',s.total);
   ok(s.lines.some(l=>/四家都叫牌/.test(l)),'明细写明原因',s.lines);
   // 荒庄：dry 模式
@@ -279,21 +284,21 @@ const T=p=>JSON.stringify(p);
   }
 
   console.log('\n===== ⑨ 弃牌含鸡：归谁（用户重点问的这条） =====');
-  // 规则原文：弃牌里的鸡归弃牌者自家收；**若弃牌者未听牌，这枚鸡改判给听牌者收**。
+  // 规则原文：弃牌里的鸡归弃牌者自家收；**若弃牌者未叫牌，这枚鸡改判给叫牌者收**。
   // 下面把四种组合逐一验掉。
-  s=await run(0,{fc:5,disc:{0:[9]}});                 // 你(听牌/胡牌) 自己牌河里 1 张幺鸡
-  console.log('  听牌家自己打出 1 张幺鸡 → 每个未叫家付 '+(-s.total[1]));
-  ok(-s.total[1]===1,'① 弃牌者是**听牌家** → 弃牌里的鸡归**自己**收（每未叫家赔 1 分）',-s.total[1]);
+  s=await run(0,{fc:5,disc:{0:[9]}});                 // 你(叫牌/胡牌) 自己牌河里 1 张幺鸡
+  console.log('  叫牌家自己打出 1 张幺鸡 → 每个未叫家付 '+(-s.total[1]));
+  ok(-s.total[1]===1,'① 弃牌者是**叫牌家** → 弃牌里的鸡归**自己**收（每未叫家赔 1 分）',-s.total[1]);
   s=await run(0,{fc:5,hand:{0:{9:1}},disc:{0:[9]}});
-  ok(-s.total[1]===2,'② 听牌家的"手里的 1 张 + 打出的 1 张"**都算自己**的（2 分/家）',-s.total[1]);
-  s=await run(0,{fc:5,disc:{1:[9]}});                 // 下家(未听) 牌河里 1 张幺鸡
-  console.log('  未听牌家打出 1 张幺鸡 → 每个未叫家付 '+(-s.total[1]));
-  ok(-s.total[1]===1,'③ 弃牌者是**未听牌家** → 这枚鸡**改判给听牌家**（打出者自己也要赔）',-s.total[1]);
+  ok(-s.total[1]===2,'② 叫牌家的"手里的 1 张 + 打出的 1 张"**都算自己**的（2 分/家）',-s.total[1]);
+  s=await run(0,{fc:5,disc:{1:[9]}});                 // 下家(未叫牌) 牌河里 1 张幺鸡
+  console.log('  未叫牌家打出 1 张幺鸡 → 每个未叫家付 '+(-s.total[1]));
+  ok(-s.total[1]===1,'③ 弃牌者是**未叫牌家** → 这枚鸡**改判给叫牌家**（打出者自己也要赔）',-s.total[1]);
   s=await run(0,{fc:5,hand:{1:{9:1}},disc:{1:[9]}});
-  ok(-s.total[1]===1,'④ 未听牌家：手里留的那张**不算**、牌河里打出的那张算（1 分，不是 2）',-s.total[1]);
+  ok(-s.total[1]===1,'④ 未叫牌家：手里留的那张**不算**、牌河里打出的那张算（1 分，不是 2）',-s.total[1]);
   ok(s.lines.some(l=>/下家［未叫］留 幺鸡\(1条\)×1 ｜ 打 幺鸡\(1条\)×1/.test(l)),
      '明细把「留」与「打」分开列，一眼能看出哪张作数',s.lines);
-  // ⑤ 两家听牌：未听牌家打出的那张鸡，**每个听牌家各收一份**
+  // ⑤ 两家叫牌：未叫牌家打出的那张鸡，**每个叫牌家各收一份**
   s=await ev(`(()=>{
     __mk({fc:5,disc:{2:[9]}});
     const TH=[0,0,0,1,1,1,2,2,2,3,3,4,4];
@@ -302,9 +307,9 @@ const T=p=>JSON.stringify(p);
     chickenSettle(0,lines,total);
     return {total:total,lines:lines,ting:[0,1,2,3].map(p=>isTing(p))};
   })()`);
-  ok(s.ting[0]===true&&s.ting[1]===true,'（前置）确实有两家听牌',s.ting);
-  ok(s.total[0]===2&&s.total[1]===2,'⑤ 未听牌家打出的 1 张鸡 → **每个听牌家各收一份**（各 2 分 = 1 分 × 2 家未叫）',[s.total[0],s.total[1]]);
-  ok(s.total[2]===-2&&s.total[3]===-2,'⑥ 两个未听牌家各赔 2 分（替对方那张鸡买单）',[s.total[2],s.total[3]]);
+  ok(s.ting[0]===true&&s.ting[1]===true,'（前置）确实有两家叫牌',s.ting);
+  ok(s.total[0]===2&&s.total[1]===2,'⑤ 未叫牌家打出的 1 张鸡 → **每个叫牌家各收一份**（各 2 分 = 1 分 × 2 家未叫）',[s.total[0],s.total[1]]);
+  ok(s.total[2]===-2&&s.total[3]===-2,'⑥ 两个未叫牌家各赔 2 分（替对方那张鸡买单）',[s.total[2],s.total[3]]);
   ok(s.total.reduce((a,b)=>a+b,0)===0,'收付守恒');
   // ⑦ 这张鸡被碰走了：随牌转移到碰牌者名下（弃牌区里已经没有它）
   s=await ev(`(()=>{
@@ -316,7 +321,7 @@ const T=p=>JSON.stringify(p);
     chickenSettle(0,lines,total);
     return {total:total,lines:lines,ting1:isTing(1),sum:total.reduce((a,b)=>a+b,0)};
   })()`);
-  ok(s.ting1===true,'（前置）碰走幺鸡的那家是听牌家',s.ting1);
+  ok(s.ting1===true,'（前置）碰走幺鸡的那家是叫牌家',s.ting1);
   ok(s.lines.some(l=>/下家［叫牌］留 幺鸡\(1条\)×3/.test(l)),'⑦ 被碰走的鸡**随牌转移**：算碰牌者的保留（副露 3 张）',s.lines);
   ok(s.lines.some(l=>/下家 每个未叫家收 3 分/.test(l)),'收付按 3 张算（不是 1 张）',s.lines);
 

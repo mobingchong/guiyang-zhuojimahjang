@@ -27,7 +27,7 @@ function send(ws,m,p){const id=_id++;return new Promise(res=>{pending.set(id,res
 let PASS=0,FAIL=0;
 function ok(cond,label,extra){ if(cond){PASS++;console.log('  ✅ '+label);} else {FAIL++;console.log('  ❌ '+label+(extra!==undefined?'  实际='+JSON.stringify(extra):''));} }
 const WIN=[0,0,0,1,1,1,2,2,2,3,3,3,4,4];        // 清大对 15 番：4 刻子 + 1 对
-const BT=[0,0,0,1,1,1,2,2,2,3,3,3,4,4];         // 同上，用来测"打一张就听"
+const BT=[0,0,0,1,1,1,2,2,2,3,3,3,4,4];         // 同上，用来测"打一张就叫牌"
 
 (async()=>{
   if(!fs.existsSync(PROFILE))fs.mkdirSync(PROFILE,{recursive:true});
@@ -139,7 +139,7 @@ const BT=[0,0,0,1,1,1,2,2,2,3,3,3,4,4];         // 同上，用来测"打一张�
             peng:canMelded(0,'peng'),gang:canMelded(0,'angang'),again:canBaoTing(0)};
   })()`);
   console.log('  '+JSON.stringify(s));
-  ok(s.before===true,'"打一张就听"时可以报听');
+  ok(s.before===true,'"打一张就叫牌"时可以报听');
   ok(s.bao===true&&s.name==='天听','闲家（庄家是别人）首摸即报听 → 记「天听」',s);
   ok(s.peng===false&&s.gang===false,'报听后**不能碰、不能杠**',[s.peng,s.gang]);
   ok(s.again===false,'已报听不能再报',s.again);
@@ -165,7 +165,7 @@ const BT=[0,0,0,1,1,1,2,2,2,3,3,3,4,4];         // 同上，用来测"打一张�
   })()`);
   console.log('  报听摸废牌：'+JSON.stringify(s));
   ok(s.auto===true&&s.disc===25,'报听后摸到废牌 → **自动打出**（不能换牌）',s);
-  ok(s.kept===true,'手牌形状不变（听牌型没被换掉）',s);
+  ok(s.kept===true,'手牌形状不变（叫牌型没被换掉）',s);
   // 结算番值：firstDraw 置 false（报听者通常不是首摸就自摸）
   s=await ev(`(()=>{
     const WIN=${JSON.stringify(WIN)};

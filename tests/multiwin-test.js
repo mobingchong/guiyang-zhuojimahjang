@@ -49,7 +49,7 @@ const WIN13G={12:1,14:3,19:3,23:3};      // 10 张 + 1 副暗杠（2条），同
 
   console.log('\n===== 准备：页内脚手架 =====');
   const setup=await ev(`(()=>{
-    /* 13 张、听 5万(index 4) 的手牌：000 999 181818（万/条/筒三门）+ 33 + 44
+    /* 13 张、叫 5万(index 4) 的手牌：000 999 181818（万/条/筒三门）+ 33 + 44
        → 补 5万 后 000/999/181818/444 四刻 + 33 将 = **大对子 5 番**（三门，所以不是清大对）。 */
     window.WIN13={10:3,12:1,14:3,19:3,23:3};
     window.WIN13G={12:1,14:3,19:3,23:3};        // 10 张 + 1 副杠（2条），同样单钓 4条
@@ -65,7 +65,7 @@ const WIN13G={12:1,14:3,19:3,23:3};      // 10 张 + 1 副暗杠（2条），同
       G.scores=[0,0,0,0];G.roundScore=[0,0,0,0];G.nextDealer=null;
       G.phase='discard';G.turn=0;G.actions=[];G.pendingAction=null;
       G.lastDiscardBy=(o.from===undefined?-1:o.from);G.lastDiscard=null;G.lastDiscardAt=0;
-      // 默认四家都是孤张（保证不成胡、也不听牌）
+      // 默认四家都是孤张（保证不成胡、也不叫牌）
       [0,1,2,3].forEach(p=>{const h=G.hands[p]=emptyC();[0,2,4,6,8,10,12,14,16,18,20,22,24].forEach(c=>h[c]++);});
       if(o.hand)for(const p in o.hand){G.hands[p]=emptyC();for(const c in o.hand[p])G.hands[p][c]=o.hand[p][c];}
       if(o.meld)for(const p in o.meld)G.melds[p]=o.meld[p];
@@ -135,9 +135,9 @@ const WIN13G={12:1,14:3,19:3,23:3};      // 10 张 + 1 副暗杠（2条），同
   ok(s.winners.length===2,'（前置）两家同时胡',s.winners);
   const douLines=(s.lines||[]).filter(l=>/闷豆/.test(l));
   ok(douLines.length===1,'暗杠的「闷豆」明细**只出现一次**（一炮双响没有把豆算两遍）',douLines);
-  ok(s.total[1]===5+6,'胡家（带暗杠）拿到：自己 5 番 + 闷豆三家各付 2（共 6）= 11',s.total[1]);
-  ok(s.total[0]===-5-5-2,'放炮者：赔两家各 5 番 + 付闷豆 2 = −12',s.total[0]);
-  ok(s.total[2]===5-2&&s.total[3]===0-2,'另一家胡家：收 5、付豆 2；没胡那家只付豆 2',[s.total[2],s.total[3]]);
+  ok(s.total[1]===5+9,'胡家（带暗杠）拿到：自己 5 番 + 闷豆三家各付 3（共 9）= 14',s.total[1]);
+  ok(s.total[0]===-5-5-3,'放炮者：赔两家各 5 番 + 付闷豆 3 = −13',s.total[0]);
+  ok(s.total[2]===5-3&&s.total[3]===0-3,'另一家胡家：收 5、付豆 3；没胡那家只付豆 3',[s.total[2],s.total[3]]);
   ok(s.total.reduce((a,b)=>a+b,0)===0,'四家收付合计 = 0');
 
   console.log('\n===== ⑥ 回归：单家胡（没多响时行为和以前一致）=====');
