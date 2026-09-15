@@ -4360,6 +4360,42 @@ function onViewportChange(){
 }
 // 事件监听做存在性判断：Node 端跑逻辑测试时用的是轻量 DOM 桩，没有这些方法。
 if(typeof window.addEventListener==='function'){
+/* ===== 牌河裁切兜底（iPad 反馈：牌多了之后 上/下家的牌河被裁切）=====
+   排查结论：在 Chromium 里量过，22~24 张牌河的 scrollHeight === clientHeight，**并没有溢出**；
+   所以问题只可能出在**别的引擎对"百分比高度 + 元素旋转"的解析差异**上（iPad Safari 的
+   动态视口/工具栏会把可用高度算得比 Chromium 小一截 → 真溢出几像素 → 被 .discardZone 的
+   overflow:hidden 悄悄裁掉，看起来就是"牌被切了"，而且不报错、不滚动，很难发现）。
+   做法：**不靠计算，直接实测**各牌河的溢出量，超了就把牌河牌的尺寸再缩一档，直到不溢出。
+   ⚠️ 只缩不放大（放大由 fitDiscards 负责）；有下限 + 次数上限，不会死循环。
+   ⚠️ 用防抖的 MutationObserver 触发：任何一次重新渲染/换局/旋转都会自动复核一遍。 */
+function fitDiscardClipGuard(){
+  const root=document.documentElement;
+  if(!root||!root.style||!document.getElementById)return;
+  const ids=['discardLeft','discardRight','discardTop','discardBottom'];
+  for(let step=0;step<12;step++){
+    let over=0;
+    ids.forEach(id=>{
+      const z=document.getElementById(id);
+      if(!z||typeof z.scrollWidth!=='number')return;
+      over=Math.max(over, z.scrollHeight-z.clientHeight, z.scrollWidth-z.clientWidth);
+    });
+    if(over<=1)return;                       // 没有溢出 → 立刻返回（绝大多数情况走这条）
+    const w=cssNum(root,'--dtw',26), h=cssNum(root,'--dth',35);
+    if(w<=11||h<=15)return;                  // 已经很小了，别再缩（宁可略溢出也别看不清）
+    const k=Math.min(0.96, Math.max(0.80, 1-Math.min(over,12)/Math.max(h,1)));
+    root.style.setProperty('--dtw',(w*k).toFixed(2)+'px');
+    root.style.setProperty('--dth',(h*k).toFixed(2)+'px');
+  }
+}
+if(typeof MutationObserver==='function'&&document.body){
+  let _clipT=0;
+  const _clipCheck=()=>{clearTimeout(_clipT);_clipT=setTimeout(()=>{try{fitDiscardClipGuard();}catch(e){}},120);};
+  try{new MutationObserver(_clipCheck).observe(document.body,{childList:true,subtree:true});}catch(e){}
+  window.addEventListener('resize',_clipCheck);
+  window.addEventListener('orientationchange',_clipCheck);
+  setTimeout(_clipCheck,900);                // 首屏再兜一次（首次布局可能早于字体/图片就位）
+}
+window.addEventListener('resize',onViewportChange);
   window.addEventListener('resize',onViewportChange);
   window.addEventListener('orientationchange',onViewportChange);
 }
