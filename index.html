@@ -4264,14 +4264,59 @@ const VOICE=(function(){
   const sup=(typeof speechSynthesis!=='undefined')&&(typeof SpeechSynthesisUtterance!=='undefined');
   // 牌名：与界面一致的"花色 + 点数"读法（一万/三筒/六条）
   const name=c=>NUM[c%9]+SUIT[(c/9)|0];
+  // 中文语音：安卓/iOS 上 getVoices() 头一次往往是空的，得等 voiceschanged 再取一遍；
+  // 优先用装在本机的中文语音（localService）—— 网络语音没网时不出声。
+  let zhVoice=null;
+  function pickVoice(){
+    try{
+      const vs=speechSynthesis.getVoices()||[];
+      const zh=vs.filter(v=>/^zh([-_](CN|Hans|SG))?$/i.test(v.lang||'')||/中文|普通话|Chinese/i.test(v.name||''));
+      zhVoice=zh.find(v=>v.localService)||zh[0]||null;
+    }catch(e){ zhVoice=null; }
+  }
+  if(sup){
+    pickVoice();
+    try{ speechSynthesis.addEventListener('voiceschanged',pickVoice); }
+    catch(e){ try{ speechSynthesis.onvoiceschanged=pickVoice; }catch(e2){} }
+  }
+  // 安卓/iOS：用户碰页面之前，朗读会被浏览器静默拦掉。第一次触摸时无声"热身"一句，
+  // 顺便再取一次语音列表（这时安卓才会把中文语音列出来）。
+  let warmed=false;
+  function warmUp(){
+    if(warmed||!sup)return;
+    warmed=true;
+    pickVoice();
+    try{
+      const u=new SpeechSynthesisUtterance(' ');
+      u.volume=0; u.rate=1; u.lang='zh-CN';
+      speechSynthesis.speak(u);
+      setTimeout(()=>{try{speechSynthesis.cancel();}catch(e){}},60);
+    }catch(e){}
+  }
+  if(sup&&typeof window!=='undefined'){
+    ['pointerdown','touchstart','keydown'].forEach(ev=>{
+      try{ window.addEventListener(ev,warmUp,{once:true,passive:true}); }catch(e){}
+    });
+  }
+  let seq=0;
   function say(txt){
     if(!on||!sup||!txt)return;
-    try{
-      speechSynthesis.cancel();                 // 掐掉上一句，避免排队
-      const u=new SpeechSynthesisUtterance(txt);
-      u.lang='zh-CN'; u.rate=1.15; u.pitch=1;
-      speechSynthesis.speak(u);
-    }catch(e){}
+    let busy=false;
+    try{ busy=!!(speechSynthesis.speaking||speechSynthesis.pending); }catch(e){}
+    const my=++seq;
+    try{ speechSynthesis.cancel(); }catch(e){}    // 掐掉上一句，避免队列堆积
+    const fire=()=>{
+      if(my!==seq||!on)return;                   // 这期间又出了张牌 → 这一句作废
+      try{
+        if(speechSynthesis.paused)speechSynthesis.resume();   // 安卓有时卡在 paused 后就不再出声
+        const u=new SpeechSynthesisUtterance(txt);
+        u.lang='zh-CN'; u.rate=1.15; u.pitch=1;
+        if(zhVoice)u.voice=zhVoice;
+        speechSynthesis.speak(u);
+      }catch(e){}
+    };
+    // 安卓：cancel() 之后紧接着 speak() 偶尔会被吞掉 → 正念着的时候让出一个 tick 再念
+    if(busy)setTimeout(fire,40); else fire();
   }
   return {
     supported:sup,
