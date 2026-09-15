@@ -2000,7 +2000,7 @@ function resetHand(){
   G.melds=[[],[],[],[]];G.discards=[[],[],[],[]];
   // 弃牌区尺寸档位的"历史峰值"（只升不降，见 render 里的档位判定）
   G.discardPeak=[0,0,0,0];
-  G.drawn=null;G.lastDiscard=null;G.lastDiscardBy=-1;G.lastDiscardAt=0;G.picked=null;G.pendingAction=null;G.actions=[];G.chickenCard=null;G.huList=[];
+  G.drawn=null;G.lastDiscard=null;G.lastDiscardBy=-1;G.lastDiscardAt=0;G.picked=null;G.pendingAction=null;G.actions=[];G.chickenCard=null;G.flipCard=null;G.huList=[];
   G.roundScore=[0,0,0,0]; // 本局清零，累计分 G.scores 保留
   G.chargeChickens=[];G.respChickens=[];G.gangFlower=false;G.fieldChicken=null;G.winTile=null;
   G.bao=[false,false,false,false];G.baoName=['','','',''];G.openFollow=null;
@@ -2506,18 +2506,22 @@ function doHuMulti(list,from,zimo){
 
    ## 一、金鸡由**翻牌**决定（②）—— 翻牌本身不是鸡
    · **翻牌** = 牌墙里第 1 张未摸的牌（G.wall 栈顶）。**有玩家胡牌且牌墙未空**时才翻。
-   · **金鸡牌 = 翻到的牌的下一张**（点数 +1；9 之后回到 1）—— 用户 2026-09-16："翻牌的 +1 是鸡牌"。
+   · **翻牌定出"本局的鸡牌"** = 翻到的牌的**下一张**（点数 +1；9 之后回到 1）—— 例：翻 **4万** → **鸡是 5万**。
        代码里 G.chickenCard 存的就是这张"下一张"（`settle()` 里 `s*9+((t%9+1)%9)`）。
-   · 金鸡牌是 **幺鸡(1条)** → 本局幺鸡升金；是 **乌骨鸡(8筒)** → 本局 8筒 升金（该牌种 ×2）。
+   · 本局翻牌鸡是 **幺鸡(1条)** → 幺鸡升金；是 **乌骨鸡(8筒)** → 8筒升金（该牌种 ×2）。
        换成"翻到哪张"的说法：翻到 **9条** → 金幺鸡；翻到 **7筒** → 金乌骨鸡。
-   · 翻到的牌是别的（例如 5万）→ 本局**没有金鸡**（幺鸡 / 8筒 照常 1 分/张）。
-   · 翻牌**本身不算鸡、不参与计分**（用户 2026-09-15："捉鸡牌（翻牌 +1 那张）不算，贵阳麻将没有这规则"），
-     它的唯一作用是**判金鸡**（上一行）。⚠️ 别和"翻牌的 +1 是鸡牌"混了：能被计分的鸡始终只有 **幺鸡 / 8筒** 两种。
+   · 本局翻牌鸡是别的牌（例如 5万）→ 没有金鸡；但 **5万 本身就是"翻牌鸡"，同样计分 1 分/张**
+       （幺鸡 / 8筒 照常 1 分/张）—— 即本局共有三类鸡，见 §二。
+   · ⚠️ 旧说法"翻牌只用于判金鸡、这张牌本身不算鸡"**已作废**（用户 2026-09-16：
+     "结算局面还要加入翻牌鸡的计算"）。翻牌的作用有两层：**定出本局的鸡牌**（= 下一张），
+     且**那张牌本身就是鸡**（1 分/张，叫"翻牌鸡"）。
    · "叫牌的手上有鸡牌的都得，有几个得几个" = 叫牌家的 幺鸡/8筒 **有几张算几张**（见 §三）。
 
-   ## 二、每张鸡的分值 v（只有两个牌种）
-     幺鸡 1 分/张（金 2）｜ 乌骨鸡 8筒 1 分/张（金 2）
-     → 分值只跟**牌种**有关：金鸡只把"那一个牌种"翻倍，另一个牌种照旧。
+   ## 二、每张鸡的分值 v（三类鸡）
+     · 常鸡 · 幺鸡(1条)   1 分/张（本局翻牌鸡正好是它 → 金 2 分/张）
+     · 常鸡 · 乌骨鸡(8筒) 1 分/张（同上）
+     · **翻牌鸡** = 翻到的牌的下一张那张牌种（例：翻 4万 → 鸡是 5万）→ **1 分/张**
+     → 分值只跟**牌种**有关；"金"只把三条里"翻牌鸡正好是它"的那一个常鸡牌种翻倍。
 
    ## 三、计数口径（按**牌种**记，不按"在手/打出"记）
    · **鸡 = 幺鸡(1条) / 乌骨鸡(8筒)** —— 只有这两类牌算分。
@@ -2568,15 +2572,19 @@ const isChargeTile=c=>isChickenTile(c);      // 冲锋鸡用：幺鸡 或 乌骨
    不产生那额外的 1 分。（要让乌骨鸡也算，把这里改成 isChickenTile 即可。） */
 const isRespTile=c=>c===YAOJI;
 
-// 一张牌在本局作为"鸡"的分值（金鸡翻倍）；不是鸡 → 0
-// ⚠️ 用户 2026-09-15：「捉鸡牌（翻牌 +1 那张）不算，贵阳麻将没有这规则」。
-//    那张牌**只用来判金鸡**（翻到 9条 → 幺鸡升金；翻到 7筒 → 8筒升金），本身不参与计分。
+// 一张牌在本局作为"鸡"的分值；不是鸡 → 0
+// 🔴 用户 2026-09-16 定稿：**鸡有三类**，翻牌鸡（翻到的牌的下一张）也要参与计分 ——
+//    ① 常鸡 · 幺鸡(1条)   1 分/张（本局翻牌鸡正好是它 → 金 2 分/张）
+//    ② 常鸡 · 乌骨鸡(8筒) 1 分/张（同上）
+//    ③ **翻牌鸡** = 翻到的牌的下一张那张牌种（例：翻 4万 → 鸡是 5万）→ 1 分/张
+//    "金"只把 ① ② 中"翻牌鸡正好是它"的那一个牌种翻倍；③ 是普通 1 分。
 function chickenValue(c,fc){
-  if(c===YAOJI)  return fc===YAOJI?2:1;      // 鸡牌恰是幺鸡 → 金幺鸡 2 分/张
-  if(c===WUGUJI) return fc===WUGUJI?2:1;     // 鸡牌恰是乌骨鸡 → 金乌骨鸡 2 分/张
-  return 0;                                   // 其他牌都是 0（含"翻牌 +1"那张，它不再是鸡）
+  if(c===YAOJI)  return fc===YAOJI?2:1;      // 常鸡·幺鸡（本局翻牌鸡恰是它 → 金 2 分/张）
+  if(c===WUGUJI) return fc===WUGUJI?2:1;     // 常鸡·乌骨鸡（同上）
+  if(fc!==null&&fc!==undefined&&c===fc)return 1;   // ③ 翻牌鸡：翻到的牌的下一张
+  return 0;                                   // 其他牌都不是鸡
 }
-// （原 isFieldChicken「宽口径」已删除：翻牌 +1 那张**不再是鸡**，不参与任何计分）
+// （原 isFieldChicken「宽口径」已删除；能计分的鸡就上面三类）
 // 鸡牌在界面上的叫法：麻将桌上就叫"幺鸡/乌骨鸡"，比自己看"1条/8筒"直观
 const chickenName=c=>(c===YAOJI?'幺鸡(1条)':c===WUGUJI?'乌骨鸡(8筒)':cname(c));
 
@@ -2608,7 +2616,7 @@ function chickenOwnPts(s){return s.rows.reduce((a,r)=>a+(r.keep+r.disc)*r.v,0);}
 
 /* 鸡分结算。total 传数组 = 真结算；传 null = **只统计不落分**（荒庄用，规则："黄庄豆鸡不算分"）。
    写进 total，并把可直接显示的明细 push 到 lines。
-   顺序：① 翻牌（只判金鸡） → ② 每家鸡的类型/数量 → ③ 常鸡收付 → ④ 冲锋鸡 → ⑤ 责任鸡 */
+   顺序：① 翻牌（写清"翻到什么、本局的鸡是什么"） → ② 每家鸡的类型/数量 → ③ 常鸡收付 → ④ 冲锋鸡 → ⑤ 责任鸡 */
 function chickenSettle(win, lines, total, burn){
   const winList=(Array.isArray(win)?win:[win]).filter(p=>typeof p==='number'&&p>=0&&p<4);   // 可能多家同时胡
   const dry=!total;
@@ -2620,10 +2628,19 @@ function chickenSettle(win, lines, total, burn){
   // 热炮（杠上炮）：点炮者的鸡全部烧掉 —— 他的鸡不收、也不因此产生赔付
   const burnList=(Array.isArray(burn)?burn:[]).filter(p=>typeof p==='number'&&p>=0&&p<4);
   const isBurned=p=>burnList.includes(p);
-  const gold=(fc===YAOJI)?'（金幺鸡 ×2）':(fc===WUGUJI)?'（金乌骨鸡 ×2）':'';
-
-  // ② 翻牌 + 每家明细（叫牌/未叫、手里的、打出的）
-  lines.push(`翻牌：${fc!==null?chickenName(fc)+gold:'无（牌墙已空，不翻牌）'}　（翻牌只用于判金鸡，这张牌本身不算鸡）`);
+  const goldName=(fc===YAOJI)?'幺鸡(1条)':(fc===WUGUJI)?'乌骨鸡(8筒)':null;
+  // 🔴 用户 2026-09-16：这行要**写清"翻到什么 + 本局的鸡是什么"**（例：翻4万 → 鸡是5万），
+  //    而且**翻牌鸡是要计分的**（1 分/张）—— 不能再写"翻牌只用于判金鸡"。
+  //    ⚠️ 显示时别把"鸡牌"标成"翻牌"：G.chickenCard 存的是**翻到的牌的下一张**，翻到的牌是 G.flipCard。
+  const flipTxt=(G.flipCard===null||G.flipCard===undefined)
+    ?'牌墙已空，不翻牌'
+    :`翻${cname(G.flipCard)}　鸡是 ${chickenName(fc)}`;
+  const chickenTxt=(fc===null||fc===undefined)
+    ?'本局鸡：幺鸡(1条) / 8筒（各 1 分/张）'
+    :(goldName
+      ?`本局鸡：${chickenName(fc)} 2 分/张（金）＋ ${chickenName(fc===YAOJI?WUGUJI:YAOJI)} 1 分/张`
+      :`本局鸡：${chickenName(fc)} 1 分/张 ＋ 幺鸡(1条) / 8筒（各 1 分/张）`);
+  lines.push(`${flipTxt}　· ${chickenTxt}`);
   sur.forEach((s,p)=>{
     const own=(called[p]&&!isBurned(p))?chickenOwnPts(s):0;   // 未叫家收不到 → 0 分
     const hasChicken=(s.rows||[]).length>0;
@@ -2832,8 +2849,9 @@ function settle(win,from,zimo,hotCannon){
   const winners=(Array.isArray(win)?win.slice():[win]).filter(p=>typeof p==='number'&&p>=0&&p<4);
   const winner=winners.length?winners[0]:-1;
   // ---- 翻鸡牌：牌墙顶指示牌的「下一张」----
-  let chicken=null;
-  if(G.wall.length>0){const t=G.wall[G.wall.length-1];const s=(t/9)|0;chicken=s*9+((t%9+1)%9);}
+  let chicken=null,flip=null;
+  if(G.wall.length>0){flip=G.wall[G.wall.length-1];const s=(flip/9)|0;chicken=s*9+((flip%9+1)%9);}
+  G.flipCard=flip;
   G.chickenCard=chicken;
   G.fieldChicken=chicken;
   const lines=[],total=[0,0,0,0];
