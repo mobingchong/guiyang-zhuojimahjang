@@ -1,0 +1,4296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b3d2e">
+<!-- 国产浏览器（小米/UC/QQ/微信 X5 内核）的全屏+应用模式声明：
+     小米浏览器、UC、微信内置浏览器认这些 meta，能在不加壳的情况下吃掉状态栏/地址栏。
+     再配合右上角的「全屏」按钮（Fullscreen API）与 manifest，多一条兜底路径。 -->
+<meta name="full-screen" content="yes">
+<meta name="x5-fullscreen" content="true">
+<meta name="x5-page-mode" content="app">
+<meta name="browsermode" content="application">
+<meta name="screen-orientation" content="any">
+<link rel="manifest" href="manifest.webmanifest">
+<title>贵阳捉鸡麻将</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+/* 安全区变量：iPhone 刘海/Home 条、iPad 圆角都会缩进内容，避免按钮被遮住 */
+:root{
+  --sat:env(safe-area-inset-top,0px);
+  --sab:env(safe-area-inset-bottom,0px);
+  --sal:env(safe-area-inset-left,0px);
+  --sar:env(safe-area-inset-right,0px);
+  /* 触控区最小边长：手机端按钮一律不小于这个值 */
+  --tap:46px;
+  /* ===== 他家手牌背面的「设计尺寸」=====
+     JS 的 fitBacks() 会按实测可用空间在这个基准上缩放（放大到 1.25 倍为止，
+     放不下则等比缩、极端时改成叠压），这是"任何屏幕都不溢出、不遮挡"的保险。
+     这几条只是各设备档的设计值 + JS 不可用时的兜底，设备档在下面的媒体查询里覆盖。
+       --back-w/h : 对家（横向一整排 13 张）
+       --side-w/h : 左右两家（纵向一整列 13 张）
+       --side-gap : 左右两家背面之间的间距，压不下时被 JS 改成负值（叠压） */
+  --back-w:22px;--back-h:30px;
+  --side-w:22px;--side-h:30px;
+  --side-gap:1px;
+  /* ===== 底部整摞（手牌/操作条/副露）距屏幕底边的距离 =====
+     8px 是"高度紧张"时的兜底值；竖屏屏幕高、中下部本来就有富余，
+     把手牌抬起来一截才按得准、也不至于贴着屏幕边缘（见下面的竖屏规则）。
+     ⚠️ 这个变量里会写 clamp()/vh，JS 侧必须用"塞进元素量高度"的
+        办法读它的真实像素值（syncLayout 里的 botPad()），不能 parseFloat。 */
+  --bot-pad:8px;
+}
+html{height:100%}
+/* 关键：用 100dvh 而不是 100vh。
+   手机上浏览器地址栏会动态伸缩，100vh 会算成"没有地址栏时的高度"，
+   导致底部内容被地址栏盖住、或者出现整页滚动。dvh 会跟着视口实时变。 */
+body{
+  font-family:-apple-system,"PingFang SC",sans-serif;background:#0b3d2e;color:#fff;
+  height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column;
+  user-select:none;-webkit-user-select:none;
+  overscroll-behavior:none;              /* 禁掉下拉刷新/橡皮筋 */
+  touch-action:manipulation;             /* 去掉 300ms 点击延迟、禁双击缩放 */
+  padding:var(--sat) var(--sar) var(--sab) var(--sal);
+}
+/* 底部预留 = 手牌高度 + 操作条高度（由 JS 写入 --reserve）。
+   #myMelds / #actions / #myHand 都绝对定位到底部，不参与 flex 分配；
+   牌桌剩下的高度全给中央弃牌区，不再出现"中间一大片空白"。 */
+#table{flex:1;position:relative;display:flex;flex-direction:column;min-height:0;
+  padding-bottom:var(--reserve,0px)}
+.row{display:flex;justify-content:center;align-items:center;gap:2px;flex-wrap:wrap}
+.back{width:22px;height:30px;background:linear-gradient(135deg,#1e6f4a,#0d4a30);border:1px solid #2a8f60;border-radius:3px}
+.tile{width:38px;height:52px;background:linear-gradient(175deg,#fffef8,#f4f2e6);border-radius:5px;display:block;border:1px solid #cfcbb8;box-shadow:0 2px 4px rgba(0,0,0,.35),inset 0 1px 0 #fff;position:relative;overflow:hidden;flex:0 0 auto}
+.tile svg{display:block;width:100%;height:100%}
+/* 牌面左上角小数字：仅手牌显示（方便辨认同花色，真牌也有类似角标） */
+.tile .k{position:absolute;top:1px;left:2px;font-size:7px;color:#b9b4a0;font-weight:700;z-index:2;line-height:1}
+/* 弃牌尺寸与手牌一致：数值由 JS 写进 --dtw/--dth（见 fitDiscards），各档只限最大值。
+   🔴 不要再逐档写死弃牌尺寸 —— 那是"弃出去的牌比手上的小一圈"的根源（用户实测反馈）：
+      写死的数字和手牌尺寸是两套，手牌一变就对不上。 */
+.discardZone .tile,.discardZone .tile.small{width:var(--dtw,26px);height:var(--dth,35px);border-radius:3px}
+/* 🔴 必须把 .tile.small 一起写上：档位里有 `.tile.small{width:20px;height:27px}`，
+   它和 `.discardZone .tile` 同为两段类选择器、又写在后面 → 会盖掉这里的尺寸，
+   结果「弃出去的牌比手上小一圈」（用户实测反馈），而且 JS 缩小时占位盒缩了、牌不缩，
+   牌顶出占位盒被 overflow 裁掉。这里用三段选择器（.discardZone .tile.small）稳赢。 */
+/* 左右两家牌横躺 → 占位盒宽高互换（尺寸同源，永远成对） */
+.tile.small{width:28px;height:38px}
+.tile.small .k{display:none}
+.hand .tile.drawn{outline:2px solid #ffd700;outline-offset:1px}
+.melds .tile.small{width:24px;height:33px}
+/* 手牌强制一行（真麻将手牌就是一排）：牌宽由 JS 按可用宽度算，刚好铺满一行。
+   原来 flex-wrap:wrap 在窄屏上会把末尾几张挤到第二行，整排变高、观感也乱。 */
+.hand{display:flex;gap:3px;justify-content:center;padding:6px;flex-wrap:nowrap;min-height:60px}
+.hand .tile{cursor:pointer;transition:transform .1s}
+.hand .tile:active{transform:translateY(-8px)}
+.hand .tile.drawn{margin-top:-10px;box-shadow:0 4px 8px #ffd700}
+/* 「建议打出的牌」：碰/杠之后手牌里没有"刚摸到的那张"可参考，玩家常常不知道该打哪张。
+   JS 会算一张最优解给它绿色虚线框 + 弹跳三下（"弹出这张牌"的感觉）。
+   用 outline（不参与布局）而不是 border —— 手牌是"按可用宽度刚好铺满一行"算出来的，
+   任何占位的描边都会把牌宽算偏。
+   注意：不额外加浮层提示——手牌上方那条道是"自己弃牌区"、中央是积分板，
+   浮层放到哪都会压牌（实测被测量脚本抓到过），所以让牌自己动最有辨识度。 */
+.hand .tile.sug{outline:2px dashed #43e0a0;outline-offset:2px;
+  background:linear-gradient(175deg,#f2fff9,#dcf6ea);
+  animation:sugPop 1.5s ease-in-out 3}
+@keyframes sugPop{
+  0%,100%{transform:translateY(0);box-shadow:0 0 0 0 rgba(67,224,160,0)}
+  40%{transform:translateY(-9px);box-shadow:0 0 14px 3px rgba(67,224,160,.85)}}
+/* 预选（点了一下、还没打出）：抬起 + 金色实线框，一眼看清"再点一次就打出去"。
+   ⚠️ 抬起必须用 transform（纯视觉、不改占位）：用 margin/height 抬会重排整行、旁边的牌跟着动。
+   ⚠️ 抬起 10px 不能压到上面的副露/操作条 → 底部整摞预留了同样高度的"抬起区"
+      （syncLayout 里的 LIFT，已经算进 --reserve）。 */
+.hand .tile.picked{transform:translateY(-10px);z-index:5;
+  outline:3px solid #ffd700;outline-offset:-3px;
+  box-shadow:0 6px 14px rgba(0,0,0,.5),inset 0 0 10px rgba(255,215,0,.45)}
+/* 「能碰 / 能杠」的牌：**不做常驻标记**。
+   曾给成对的牌在底部画一条橙色/紫色色条，实测用户根本看不出那是"可碰"的意思，
+   只觉得牌下面多了一条横线、干扰视线 —— 所以去掉。
+   现在只在"别人刚打出这张牌、你现在真的能碰/杠"时提示（下面的 .wantpeng/.wantgang：
+   虚线框 + 弹跳），配合操作条的「碰 / 可碰 X / 过」按钮，含义明确、平时不占视线。 */
+/* 临场提醒：别人正打出这张牌、你现在就能碰/杠 → 这一组牌加虚线框 + 弹跳（与"建议打出的牌"
+   同款动效）。虚线框用负 offset 画在牌内部：手牌间隙只有 2~4px，向外画会盖住邻牌。
+   ⚠️ 与 .sug 不会打架：.sug 只在"该你出牌、无待决动作"时出现，
+   .wantpeng/.wantgang 只在"有待决动作（碰/杠按钮弹着）"时出现，两者天然互斥。 */
+@keyframes claimPop{0%,100%{transform:translateY(0)}40%{transform:translateY(-8px)}}
+.hand .tile.wantpeng{outline:2px dashed #ff9a2e;outline-offset:-3px;
+  animation:claimPop 1.4s ease-in-out 2}
+.hand .tile.wantgang{outline:2px dashed #a06bff;outline-offset:-3px;
+  animation:claimPop 1.4s ease-in-out 2}
+/* 日志栏在被"提示"时短暂高亮（不动布局，只改背景/颜色） */
+#log.hl{background:rgba(4,60,44,.92);color:#c8ffe8;box-shadow:0 0 0 1px rgba(67,224,160,.55)}
+/* 自己的副露 / 手牌：钉在底部固定层，高度由 JS 量进 --hand-h / --reserve。
+   副露必须压在牌桌之上（z-index 高于 .center），否则会被侧边走牌区盖住。 */
+/* 底部三层自下而上：手牌 → 操作条 → 副露，各自 bottom 累加，
+   互不遮挡。副露的 bottom 用「手牌高 + 操作条高」，操作条用「手牌高」。 */
+#myMelds{position:absolute;left:0;right:0;
+  bottom:calc(var(--hand-raw-h,0px) + var(--act-h,0px) + 2px);
+  margin:0;padding:2px 6px 3px;justify-content:center;flex-wrap:nowrap;
+  align-items:center;gap:8px;z-index:16}
+/* ⚠️ .meldWrap 默认是「纵向」容器（给他家竖排副露设计）。
+   我方副露必须横向：否则「副露 + 标签」挤成一条细长条，
+   能窄到 30px、两侧留出大片空白，标签还会压到牌面上。 */
+/* 我方副露：横向一组一组排（碰=3张/杠=4张），每组下方挂一个类型标签。
+   统一用固定小尺寸：副露是"已完成的牌组"，比手牌小一号才不抢视线，
+   也让「牌 + 标签」两行整体压在 40px 以内，不会顶到操作条。 */
+#myMelds{row-gap:2px;column-gap:8px;align-content:center}
+#myMelds .meldWrap{flex-direction:column;align-items:center;justify-content:flex-end;gap:1px}
+#myMelds .meld{flex-direction:row;gap:1px}
+#myMelds .meld .tile{width:22px !important;height:30px !important;border-radius:3px}
+#myMelds .meldTag{position:static;bottom:auto;left:auto;transform:none;
+  font-size:9px;padding:0 5px;line-height:1.3;background:rgba(0,0,0,.6)}
+/* 手牌不贴屏幕最底沿：底部留 --bot-pad（竖屏由下面的媒体查询抬高一截）。 */
+#myHand{position:absolute;left:0;right:0;bottom:var(--bot-pad,8px);z-index:16}
+/* ===== 手牌托板 =====
+   竖屏屏幕高、中下部有富余高度，把底部整摞抬起来之后，
+   手牌下面会留出一块空白 —— 加一层很淡的托板（渐变 + 顶部细线），
+   这块留白就变成"有意的托盘"而不是"没排满的空地"。
+   高度 = 手牌高 + 底部留白，正好从手牌顶边盖到屏幕底边；不吃点击。 */
+#shelf{position:absolute;left:0;right:0;bottom:0;height:calc(var(--hand-raw-h,84px) + var(--bot-pad,8px));
+  pointer-events:none;z-index:3;
+  background:linear-gradient(180deg,rgba(0,0,0,0) 0%,rgba(0,0,0,.16) 26%,rgba(0,0,0,.28) 100%);
+  border-top:1px solid rgba(255,255,255,.07)}
+/* 竖屏：底部整摞抬起 7vh（约屏幕高的 7%，上下限 18~88px）。
+   横屏高度本来就紧张，保持 8px 不动。 */
+/* ===== 🔴 四家的牌一律"站着"：字朝上，永远可读 =========================
+   做过一版"还原真实牌桌"的全局旋转（下家 90°、对家 180°、上家 270°），想做出
+   "每家的牌都朝向自己"的方框感 —— **已全部撤掉**，原因很直接：
+      屏幕上的牌是用来**读**的。转 90° 文字躺倒、转 180° 文字倒过来，用户得歪头才认得出
+      （实测反馈："躺着看牌？"）。真实牌桌上敢这么摆，是因为人围着桌子坐、随时能挪脑袋；
+      固定视角的游戏里没有这个自由度，**可读性优先于拟真**。
+   现在的规则：
+     ① 任何**正面朝上的牌**（弃牌、副露、自己的手牌）一律 0°，字朝上；
+     ② 四家的差别只体现在**排列方向**上：
+        上下两家 = "横着长"的牌河（先铺满一行，再起下一行）
+        左右两家 = "竖着长"的牌河（先铺满一列，再起下一列）
+     ③ 牌背（他家手牌）本来就没有朝向可言，同样 0°，与正面牌共用一套尺寸。
+   ⚠️ 别再给它加 `transform:rotate(...)`：旋转是纯视觉的，元素占位仍是原尺寸，
+      flex 会照旧按旧尺寸排版 → 相邻牌重叠、间距全乱（当年为此套了一层 .tbox 占位盒，
+      现在那层盒子也一并删掉了）。 */
+
+/* 弃牌区的排列：**先把一排排满，排不下才另起一排**。
+   用 flex 的换行行为天然实现，**不要用固定列数的 grid** —— 那会把牌平均分成一小格一小格，
+   看起来像方块堆而不是"牌河"（实测用户反馈就是这个）。
+   左右两家是"竖着长"的牌河 → column + wrap：先竖着排满一列，排不下才起第二列；
+   上下两家是"横着长"的牌河 → 默认 row + wrap：先横着排满一行，再排第二行。
+   容器高度由 .midRow 的 align-items:stretch 撑定，flex 才知道一列排到哪里算满。
+   ⚠️ `width:auto !important`：各档残留着 `#discardLeft{width:XXpx}` 的老规则，
+      不强制覆盖的话宽度仍按老值走（实测就是它让 compact 档只剩 29px、牌河退化成 1 列）。
+   ⚠️ 列靠中央对齐（左家的列靠右、右家的列靠左），牌河的"内侧边"才贴着中央、四边好围成方框。 */
+/* 左右两家的弃牌：**两列竖排、在这一侧垂直居中**（照着参考图做）。
+   牌竖着、字朝上 —— 和另外两家一样，字必须能直接读。 */
+#discardLeft,#discardRight{
+  /* 竖排、排满一列自动起下一列（图里就是 2 列），整块在这一侧**垂直居中**。
+     ⚠️ 不能用固定 2 列的 grid：矮横屏放不下时 grid 不会自动加列，会被 overflow 切掉（实测 sh=172>ch=149）。 */
+  display:flex;flex-direction:column;flex-wrap:wrap;
+  justify-content:center;align-content:center;gap:2px;
+  /* 不许被 flex 压缩：否则 offsetWidth 会比真实内容小，缩小判定永远不触发（实测被压住中央）。 */
+  min-width:max-content;
+  width:auto !important;flex:0 0 auto}
+/* ===== 四家牌的方向：以"每家自己看是正的"为准（真实牌桌就是这样）======
+   自己 0°、对家 180°、上家(左) +90°、下家(右) -90°。
+   ⚠️ 180° 是纯视觉镜像，元素占位不变 → 直接转容器最省事、零布局风险。
+   ⚠️ ±90° 会把占位宽高对调 → 必须"外层 .tbox 占位盒 + 内层 rotate"：
+      只给元素加 rotate 是纯视觉旋转，flex 仍按旧尺寸排版 → 相邻牌重叠（当年踩过）。
+   🔴 牌面上的字**跟着牌一起转**，不做任何 counter-rotate：真实牌的字印在牌上，牌转字就转。
+      （做过"牌转 90°、字转回 0°"的版本，被否掉：那是假牌。）
+   🔴 别再自己拍板"对家也摆正"：对家对自己是正的 = 对我们就是倒的（用户明确要求）。 */
+#topInfo{transform:rotate(180deg)}
+/* 对家：**逐张转 180°**，不转容器。
+   踩过：转容器会把容器内的 left/right 内边距一起镜像 —— #topHand 的 padding-right:48px
+   本来是给右上角悬浮按钮留的，镜像后跑到左边，牌直接顶到按钮下面（实测重叠 23x26）。
+   逐张转是纯视觉、占位完全不变，最稳。 */
+#topHand>*,#topMelds>*,#discardTop>*{transform:rotate(180deg)}
+/* 左右两家的名字标签也跟着这一家转（占位不变，转完会超出原盒 ~7px，给点上下余量） */
+#leftName{transform:rotate(90deg);margin:15px 0}
+#rightName{transform:rotate(-90deg);margin:15px 0}
+/* 占位盒：宽高互换，内层元素转向这一家。.r = 右侧（下家，-90°） */
+.tbox{position:relative;flex:0 0 auto}
+.tbox>*{position:absolute;left:50%;top:50%;transform-origin:center;
+  transform:translate(-50%,-50%) rotate(90deg)}
+.tbox.r>*{transform:translate(-50%,-50%) rotate(-90deg)}
+.tbox.bk{width:var(--side-bh,21px);height:var(--side-bw,15px)}   /* 侧栏手牌背面 */
+.tbox.dt{width:var(--dth,35px);height:var(--dtw,26px)}           /* 侧边牌河 */
+.tbox.ml{width:var(--smh,15px);height:44px}                      /* 侧栏副露（高由 fitSideMelds 写） */
+/* 左右两家的副露：**一副一副竖着堆**（每副在他自家眼里就是"一排牌"，转过来成竖条）。
+   ⚠️ 不能再横向并排：那会让每副占宽 40+ 把中排挤爆 —— 实测 98~282px，
+      直接把中央积分板和牌河压没（用户看到的就是"牌河挤成一坨"）。 */
+#leftMelds,#rightMelds{align-self:center;flex:0 0 auto;width:auto;
+  flex-direction:column;flex-wrap:wrap;max-height:100%;
+  align-items:center;align-content:center;justify-content:center;gap:2px}
+/* ⚠️ flex-wrap:wrap + max-height:100% 不能省：矮横屏（800x340）中排只有 ~63px 高，
+   4 副竖着堆要 80px → 会从上下两头溢出、压住对家/自己的牌河（实测 14x3、11x4 的遮挡）。
+   换行后放不下的副露自己另起一列，横向空间在横屏本来就富余。 */
+
+@media (orientation:portrait){
+  :root{--dt-max-w:32px;--dt-max-h:43px;--dt-budget:0.24;--mel-max-w:25px;--mel-max-h:34px;--wall-tw:11px;--wall-th:15px}
+  :root{--bot-pad:7vh;--bot-pad:clamp(18px,7dvh,88px)}
+}
+/* 没有副露时整条按住（否则会留一条 5px 的透明空条压在弃牌区下沿） */
+#myMelds:empty{display:none}
+.melds{display:flex;gap:6px;justify-content:center;flex-wrap:nowrap;padding:2px}
+.meld{display:flex;gap:1px;background:rgba(0,0,0,.2);padding:2px;border-radius:4px}
+.meld .tile.small{position:relative}
+/* 副露牌型标识色条：碰=橙、明杠=紫、暗杠=深灰 */
+.meld.peng{box-shadow:0 0 0 1px #d98a00,inset 0 0 0 1px rgba(255,255,255,.15)}
+.meld.gang{box-shadow:0 0 0 1px #8e44ad,inset 0 0 0 1px rgba(255,255,255,.15)}
+.meld.angang{box-shadow:0 0 0 1px #455a64,inset 0 0 0 1px rgba(255,255,255,.15)}
+/* 副露区（含他家）：紧凑小牌 + 类型标签 */
+.meldWrap{display:flex;flex-direction:column;align-items:center;gap:1px}
+.meldTag{font-size:8px;line-height:1;color:#ffd88a;background:rgba(0,0,0,.45);padding:1px 4px;border-radius:5px;white-space:nowrap}
+.meldTag.gang{color:#e1bee7}
+.meldTag.angang{color:#cfd8dc}
+/* 他家副露区：宽度受限，横向不换行 */
+.otherMelds{display:flex;flex-direction:column;gap:2px;align-items:center;width:100%}
+.otherMelds .meld{padding:1px;gap:0}
+/* ⚠️ 侧栏副露牌宽不能写死：杠是 4 张，窄屏侧栏（40px）放不下会顶破右边界。
+   改为弹性收缩——4 张牌的杠以最窄的侧栏为基准，碰（3张）自然更宽松。 */
+.otherMelds .tile.small{width:var(--smw,11px);height:var(--smh,15px);
+  flex:0 0 auto;max-width:none;border-radius:2px}
+.otherMelds .meld{max-width:100%;overflow:hidden}
+.otherMelds .meldTag{display:none}
+/* 对家副露：牌 + 类型标签一行排。max-height 要留够「牌 20 + 内边距 4 + 行高余量」，
+   26px 会把标签底部裁掉 3px（实测 sh=29 > ch=26）。 */
+.topMelds{flex-direction:row;flex-wrap:wrap;justify-content:center;align-items:flex-end;gap:4px;max-height:32px}
+.topMelds .meldWrap{flex-direction:row;align-items:center;gap:1px}
+.topMelds .meld{flex-direction:row}
+.topMelds .tile.small{width:14px;height:20px;border-radius:2px}
+.topMelds .meldTag{display:block;font-size:7px;padding:0 3px;line-height:1.3}
+.info{text-align:center;font-size:12px;color:#9fd;padding:2px}
+.center{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px;min-height:0;width:100%}
+.midRow{flex:1;display:flex;align-items:stretch;justify-content:space-between;gap:4px;width:100%;min-height:0}
+/* 🔴 justify-content 必须是 space-between（不能 center）：中排里是
+     [左副露][左牌河][中央信息块][右牌河][右副露] ——
+   用 center 时整组居中，左右两家那两组会**离开自己那一侧的手牌**、漂到中间去
+   （用户反馈"弃牌靠着中间、没靠自己边的手牌"）。配合 .centerInfo{flex:1}
+   让中央块吃掉所有余量，两边就各自紧贴自家的侧栏了。 */
+/* 中央列：牌墙 + 积分板 —— 在整块牌桌的垂直中线上，别被弃牌区挤偏 */
+.centerInfo{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1 0 auto;min-width:74px;gap:3px}
+/* 中央显示牌墙 + 本局各家得分 */
+.scoreBoard{background:rgba(0,0,0,.32);border-radius:8px;padding:5px 7px;font-size:11px;line-height:1.55;color:#dfe;min-width:74px}
+.scoreBoard .srow{display:flex;justify-content:space-between;gap:8px;white-space:nowrap;border-radius:4px;padding:0 2px}
+.scoreBoard .srow.cur{background:rgba(255,215,0,.22)}
+.scoreBoard .sname{color:#9fd}
+/* 「庄」标记：本局庄家（下局由他摇色子先拿先出牌）；「✎」提示自己的名字可以点开改 */
+.scoreBoard .zh{color:#ffd700;font-size:.85em;margin-left:3px}
+.scoreBoard .pen{opacity:.5;font-size:.85em;margin-left:3px}
+.scoreBoard .srow.mine{cursor:pointer}
+.scoreBoard .pos{color:#7fe08a}
+.scoreBoard .neg{color:#ff8b8b}
+/* 四家弃牌区：统一流式多列；最新牌用固定尺寸放大（布局层生效），故无需 overflow 溢出 */
+.discardZone{display:flex;flex-wrap:wrap;gap:2px;align-content:flex-start;overflow:hidden;scrollbar-width:none}
+/* 上下两家：横向铺开 */
+#discardTop,#discardBottom{max-width:100%;max-height:16vh;justify-content:center}
+/* 左右两家：限制在牌桌高度内（下方会落到手牌层上被压住）。
+   列数由各设备档的媒体查询决定 —— 手机/平板改成横向 2 列，矮一半、牌能做大一号。 */
+  /* 左右两家的弃牌区：宽度和对齐都由全局规则决定（见文件前部的旋转/排列规则），
+     这里只限制它别超出格子高度。 */
+  #discardLeft,#discardRight{max-height:calc(100% - 8px)}
+#discardTop.ultra,#discardBottom.ultra{max-height:12vh}
+#discardTop.compact,#discardBottom.compact{max-height:14vh}
+/* 弃牌用小号牌，节省空间；牌数多时由 JS 追加 compact 类进一步缩小 */
+.discardZone .tile .k{font-size:5px}
+.discardZone.compact .tile .k{font-size:4px}
+.discardZone.ultra .tile .k{display:none}
+/* 左右两家的弃牌：牌横躺（长边朝向这一家自己），排列是"先铺满一列、再起下一列"。
+   牌的朝向与字的朝向怎么分工，见文件开头「四家牌的方向」那一节。 */
+/* 最新打出的牌：金色描边 + 内部光晕 + 提亮 + 呼吸动画。
+   🔴 这里**绝不能放大尺寸**。之前用 width/height 把最新牌放大，导致两个问题：
+      ① "以前打出的牌在缩小/放大/乱动"：尺寸一变就把整行撑高，行高一变，弃牌区
+         在格子里的对齐跟着变 → 整条牌河上下跳两次（出牌时上跳、约 1 秒后 latest
+         被下一家覆盖而取消、又落回来；实测老牌 top 在 723↔736 之间来回 13px）。
+         再叠上 .discardZone .tile 的 width/height 过渡，就成了肉眼可见的缩放动画。
+      ② "刚打出的牌被裁了一角"：牌河里最后一张正好贴着弃牌区的下/右边缘，
+         放大的那部分被 overflow:hidden 裁平（牌本身尺寸是完整的，被切掉的只有描边）。
+      改成"零布局影响"的强调手段后，牌河尺寸恒定 → 老牌纹丝不动，也永远不会被裁。
+   ⚠️ 描边必须画在牌**内部**（inset）：向外画的描边/外发光会被 overflow:hidden 切平。 */
+/* 🔴 描边宽度必须**跟着牌大小走**（calc(--dth)）：固定 2px 在 26px 的小弃牌上占 1/13，
+   在桌面 86px 的大牌上只占 1/43 —— 两头都"比例不协调"（用户反馈"黄边向内太宽"）。 */
+.tile.latest,.tile.latestRing{
+  box-shadow:inset 0 0 0 calc(var(--dth,35px)*0.035) #ffd700,
+             inset 0 0 calc(var(--dth,35px)*0.12) rgba(255,200,0,.45);
+  filter:brightness(1.06);
+  z-index:3;position:relative}
+/* 跳动只给"刚打出的那一瞬"（JS 按 G.lastDiscardAt 加 .spot 类，900ms 内）。
+   ⚠️ 原来把 animation 直接挂在 .latest 上 —— 而 render() 每回合重建整桌 DOM，
+      于是**每次重绘都会把动画从头重播一遍**（0% 那帧描边 5px），
+      看上去就是"黄边一粗一细、有时候明显有时候没有"（用户反馈"显示的不显示"）。 */
+.tile.latest.spot,.tile.latestRing.spot{animation:spot .55s ease-out 2}
+@keyframes spot{
+  0%{box-shadow:inset 0 0 0 calc(var(--dth,35px)*0.062) #fff0a8,
+               inset 0 0 calc(var(--dth,35px)*0.22) rgba(255,215,0,.95)}
+  100%{box-shadow:inset 0 0 0 calc(var(--dth,35px)*0.035) #ffd700,
+                 inset 0 0 calc(var(--dth,35px)*0.12) rgba(255,200,0,.45)}}
+/* 只给描边做过渡，**不要给 width/height 做过渡**：牌数跨 9/15 档时整个弃牌区会换尺寸，
+   带尺寸过渡就会看到"所有牌一起缩放一下"的动画，很容易被误读成"牌在自己缩小又放大"。 */
+/* 每侧牌河的宽度预算：牌多时靠"多一列"消化（flex 自动换行），
+   真的超出预算才由 fitDiscards 逐级缩小 —— 不再按牌数硬切尺寸档。 */
+:root{--dt-budget:0.21}
+/* 操作区：浮在手牌正上方（原来贴屏幕最底部，拇指/手掌正好压在上面，极易误触）。
+   定位基准是"手牌顶边"而不是屏幕底边，所以手牌换行变高时它也跟着上移。
+   同时 JS 会把它的高度算进 --reserve，弃牌区不会伸到它底下。 */
+#actions{
+  position:absolute;left:0;right:0;
+  bottom:var(--hand-raw-h,96px);           /* 锚定"手牌顶边"（不含副露） */
+  display:flex;gap:8px;justify-content:center;align-items:flex-end;flex-wrap:wrap;
+  padding:0 8px 8px;pointer-events:none;z-index:20;
+}
+#actions:empty{display:none}
+/* 牌局结束（或亮牌查看）时不该再有操作按钮，直接隐藏，避免浮在结算面板上 */
+body.isOver #actions{display:none}
+#actions>*{pointer-events:auto}
+#actions button{
+  min-height:var(--tap);min-width:var(--tap);
+  padding:12px 22px;font-size:17px;      /* 手机端放大：好按、不误触 */
+  border-radius:26px;
+}
+#actions .hint{
+  font-size:13px;color:#ffd700;font-weight:700;
+  background:rgba(0,0,0,.62);padding:6px 12px;border-radius:16px;
+  animation:blink 1s ease-in-out infinite;
+}
+button{padding:10px 20px;border:none;border-radius:22px;font-size:15px;font-weight:700;background:#ffb300;color:#3a2000;box-shadow:0 3px 0 #b37d00;cursor:pointer}
+button:active{transform:translateY(2px);box-shadow:0 1px 0 #b37d00}
+button.gray{background:#666;color:#fff;box-shadow:0 3px 0 #333}
+button.red{background:#e53935;color:#fff;box-shadow:0 3px 0 #8e0000}
+#log{position:absolute;top:4px;left:4px;font-size:11px;color:#cfe;background:rgba(0,0,0,.4);padding:4px 8px;border-radius:6px;max-width:66%;line-height:1.5;pointer-events:none;z-index:5;  max-height:3em;overflow:hidden}   /* 状态行最多两行，长文本不再往下压住对家的牌 */
+/* ===== 悬浮控件层：右上角「全屏」/ 结算窗收起后重新打开的「本局详情」=====
+   两者都钉在右上角（z-index 高于牌桌与弹窗），只占屏幕一角、
+   不与任何牌面/按钮抢位置，横竖屏都在同一处，肌肉记忆好找。 */
+#fsBtn{position:fixed;top:calc(var(--sat) + 6px);right:calc(var(--sar) + 6px);
+  width:40px;height:40px;min-height:0;padding:0;border-radius:50%;
+  background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.22);box-shadow:none;
+  display:flex;align-items:center;justify-content:center;z-index:60}
+#fsBtn:active{transform:none;background:rgba(0,0,0,.72);box-shadow:none}
+#fsBtn svg{width:21px;height:21px;display:block}
+#fsBtn svg .in{display:none}
+body.isFS #fsBtn svg .out{display:none}
+body.isFS #fsBtn svg .in{display:block}
+/* 结算后的两个入口（本局详情 / 再来一局）：位置放在**操作条那一层**（手牌正上方）。
+   结算时操作条是隐藏的，这条空档正好放按钮；JS 会把按钮高度算进 --reserve，
+   所以既不会压牌桌上的弃牌，也不会压手牌/副露。
+   ⚠️ 原来这块钉在**右上角**（top:sat+52 / +90）：实测它压住右家（上家）的名字和手牌
+      （32×16、19×26），而那个位置的回归场景以前没覆盖"结算窗已关闭且已完局"的状态，
+      一直没被发现。挪到底部后与右上角的全屏按钮也不再互相挤。 */
+#endBtns{position:fixed;left:50%;transform:translateX(-50%);bottom:8px;
+  display:none;align-items:center;gap:10px;z-index:45}
+#endBtns.on{display:flex}
+#reopen{padding:9px 15px;font-size:12.5px;border:1px solid rgba(255,215,0,.4);border-radius:16px;
+  background:rgba(0,0,0,.66);color:#ffd700}
+#reopen:active{background:rgba(0,0,0,.85)}
+/* 「再来一局」做成醒目的金色主按钮：原来只剩「本局详情」一个入口，
+   用户以为必须刷新页面才能开下一局（实测反馈）。 */
+#againBtn{padding:9px 16px;font-size:13px;font-weight:800;border:0;border-radius:16px;
+  cursor:pointer;color:#3a2400;background:linear-gradient(180deg,#ffd76a,#f0b429);
+  box-shadow:0 3px 10px rgba(0,0,0,.45)}
+#againBtn:active{transform:translateY(1px);filter:brightness(.94)}
+/* 结算窗开着时把全屏按钮藏掉：它 z-index 60 比弹窗层（40）高，
+   会浮在结算卡右上角上、和窗内的「×」挨在一起（实测横屏收起态两者相交）。
+   看结算的时候本来也没心思切全屏，关掉窗它自己就回来了。 */
+body.isResult #fsBtn{display:none}
+/* 摇色子阶段同样藏掉：这时牌桌上什么都还没有，全屏按钮浮在色子遮罩之上没有意义；
+   而且空桌时右侧那一列会往上收，名字标签正好顶进按钮的位置（实测 28×13 相交）。 */
+body.isDice #fsBtn{display:none}
+body.isName #fsBtn{display:none}   /* 取名层（首次进入/改名）也藏掉：见 openNameDlg 注释 */
+/* ===== 音效开关（右下角）=====
+   ⚠️ 这个位置是**实测选出来的**，别凭直觉挪（下面每条都是布局回归的真实结论）：
+      · 右上、贴着全屏按钮左边（top:6/right:52）→ 手机竖屏压住**对家手牌背面** 16~23px；
+      · 右上、全屏按钮正下方（top:50/right:6）→ 竖屏干净，但**横屏**压住上家名字标签；
+      · 左上角 / 左下角 → 竖屏分别压到对家手牌、下家手牌；
+      · 右下角贴边往上挪（bottom:56 / 104）→ 竖屏压到**自己的手牌**。
+      把 12 个候选位置 × 2 个关键尺寸逐个跑回归后，最终是**两条规则配合**：
+        · 常规（竖屏/平板/桌面/普通横屏）→ 右下角贴边 bottom:8 + right:6；
+        · 极矮横屏（≤380px 高）→ 右下角往里让开 52px（right:52）；
+      这是因为矮横屏时右下角贴边那一格正好被上家的手牌占着，往里让 52px 才是空档。
+      固定定位，不进牌桌布局；结算/摇色子/取名层里与全屏按钮一起隐藏。 */
+#sndBtn{position:fixed;bottom:calc(var(--sab) + 8px);right:calc(var(--sar) + 6px);
+  width:40px;height:40px;min-height:0;padding:0;border-radius:50%;
+  background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.22);box-shadow:none;
+  display:flex;align-items:center;justify-content:center;z-index:60}
+#sndBtn:active{transform:none;background:rgba(0,0,0,.72);box-shadow:none}
+#sndBtn svg{width:21px;height:21px;display:block}
+#sndBtn svg .off{display:none}
+body.sndOff #sndBtn svg .on{display:none}
+body.sndOff #sndBtn svg .off{display:block}
+body.sndOff #sndBtn{background:rgba(0,0,0,.28);border-color:rgba(255,255,255,.13);opacity:.72}
+/* 与全屏按钮同进退：结算层/色子层/取名层里一并藏掉，免得和弹窗右上角的「×」挤在一起 */
+body.isResult #sndBtn{display:none}
+body.isDice #sndBtn{display:none}
+body.isName #sndBtn{display:none}
+/* 极矮横屏（≤380px 高，例如 800×340 —— 手机地址栏吃掉高度的那种）：
+   右下角**贴边**那一格被上家的手牌占着（实测压 20×9），往里让开 52px 才是空的。
+   ⚠️ 这条必须写在基础规则**之后**：媒体查询不增加优先级，靠顺序覆盖。 */
+@media (max-height:380px){
+  #sndBtn{right:52px}
+}
+
+#result{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;padding:20px;z-index:40;
+  overscroll-behavior:contain}
+/* ===== 结算窗三态 =====
+   ① 展开：居中/底部抽屉，带一层半透明遮罩（牌桌仍能看见，只是压暗）
+   ② 收起(peek)：缩到角落浮窗，牌桌完全露出，四家亮牌一览无遗
+   ③ 关闭：桌面干净了，右上角留一个「本局详情」小药丸随时叫回来
+   旧版遮罩层 z-index 比手牌层低，收起后的浮窗会被自己的手牌盖住 —— 现在弹窗层
+   永远压在最上层（z-index:40 > 手牌 16 / 操作条 20），弹窗不会被任何牌面遮挡。
+   ⚠️ 底部让位一律用 --reserve（手牌 + 操作条 + 副露的总高，即"底部整摞"的顶边），
+      不能用 --hand-h（只到副露，操作条那一段会漏出来 → 浮窗压在自己的操作条/副露上）。 */
+  /* ⚠️ 必须 **居中**（原来 flex-end = 右下角）：收起态的窗体停在右下角时正好压在右侧
+     那家的手牌列上（实测 560 / 834 / 871 / 1920 宽都压 20~38px）—— 而收起态的用意恰恰是
+     「让四家亮着的牌全露出来」，压住一家就白收了。居中后四家手牌都不被挡。 */
+#result.peekMode{background:transparent;pointer-events:auto;align-items:flex-end;justify-content:center;
+  padding:12px 14px calc(var(--reserve,0px) + 14px)}
+/* ⚠️ 收起态就是"结算时默认的样子"，必须**只占两侧副露之间的空档**：实测 400px 竖屏里
+   左副露占 36~69px、右副露 321~354px —— 窗宽超过约 240px 就会压住两家的副露（实测各压 36x77），
+   那等于"四家亮牌"没露出来。各档的宽度都是按这个空档定的，别随手放大。 */
+/* 收起态用的墙牌尺寸：**只改变量**，各档可以覆盖（直接给 .tile 定宽会因特异性更高而压掉各档）。 */
+#result.peekMode{--wall-tw:10px;--wall-th:14px}
+#result.peekMode .box{pointer-events:auto;max-width:min(240px,60vw);max-height:min(82dvh,calc(100dvh - var(--reserve,0px) - var(--top-h,60px) - 10px));box-shadow:0 8px 32px rgba(0,0,0,.55);background:#fff}
+/* 收起态的操作提示改到窗内（原来的浮层文字会压在手牌上） */
+#result .peekHint{display:none;font-size:11px;color:#8a9;line-height:1.45;text-align:center;margin-top:8px}
+#result.peekMode .peekHint{display:block}
+#result .box{background:#fff;color:#222;border-radius:14px;padding:18px;max-width:340px;width:100%;
+  max-height:82vh;max-height:min(82dvh,760px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;position:relative;
+  display:flex;flex-direction:column}
+/* 结算窗内的关闭「×」：右上角，触控区不缩水 */
+#result .xBtn{position:absolute;top:8px;right:10px;width:34px;height:34px;padding:0;min-height:0;border-radius:50%;
+  background:#eef1ef;color:#5a6b62;font-size:17px;font-weight:700;line-height:1;box-shadow:none}
+#result .xBtn:active{transform:none;box-shadow:none;background:#dfe5e1}
+#result h2{font-size:18px;margin-bottom:10px;text-align:center;color:#0b3d2e}
+/* 结算内容分两段：rMain=胡牌明细，rSide=得分/累计积分/按钮。
+   竖屏上下排（与旧版视觉一致），横屏由 ③ 档改成左右两栏，
+   矮屏才塞得下、底部按钮不用滚动就够得到。 */
+#result .rMain,#result .rSide{min-width:0}
+#result .rScores{margin-top:10px}
+#result .rBtns{flex:1 1 100%;margin-top:14px;text-align:center;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+/* 结算窗里的「未摸到的牌」：把牌墙剩下的牌全部翻开，用最小的牌面紧凑排开。
+   ⚠️ 必须塞进 rSide 那一栏（竖屏在按钮下方、横屏在右栏）：横屏结算窗只排两栏，
+      新开一栏会撑宽。
+   ⚠️ 收起态（peekMode）里藏掉：收起态窗体本来就紧，墙牌太占地方。 */
+#result .rWall{flex:1 1 100%;margin-top:8px;border-top:1px dashed #e3ddd0;padding-top:6px}
+#result .rWallT{font-size:11px;color:#7a8577;margin-bottom:4px}
+#result .rWallG{display:flex;flex-wrap:wrap;gap:1px}
+#result .rWallG .tile{width:var(--wall-tw,11px);height:var(--wall-th,15px);
+  border-radius:1px;box-shadow:none;border:1px solid #e2ddcd;overflow:hidden;flex:0 0 auto}
+#result .rWallG .tile .k{display:none}
+/* 收起态也要显示"未摸到的牌"（用户要求）：靠下面的行距压缩把位置腾出来。 */
+#result .line{font-size:13px;padding:5px 0;border-bottom:1px solid #eee;display:flex;justify-content:space-between;gap:8px}
+#result .scoreSummary{margin-top:10px;background:#f4f7f5;border-radius:8px;padding:6px 10px}
+#result .scoreSummary .line{border-bottom:1px solid #e2e8e4;font-size:13px}
+#result .scoreSummary .line:last-child{border-bottom:none}
+.nameTag{font-size:11px;color:#9fd;background:rgba(0,0,0,.3);padding:1px 8px;border-radius:8px;white-space:nowrap}
+.side{width:70px;display:flex;flex-direction:column;align-items:center;gap:3px;min-height:0;
+  /* 整块（名字 + 手牌列）在自己那一侧的**中间**：左右两家的牌要"在他自己前面"，
+     而不是缩在上方挨着对家那一角（用户实测反馈：看着像对家面前的牌）。 */
+  align-self:center}
+/* min-height:0 + flex:0 1 auto —— 允许「他家手牌列」在矮屏上被压缩，
+   否则它会把 .side 撑高、整列溢出牌桌底部（横屏手机的典型事故）。 */
+.sideHand{display:flex;flex-direction:column;gap:0;align-items:center;flex:0 1 auto;min-height:0}
+/* 他家手牌背面：尺寸统一由 JS（fitBacks）算，CSS 只给设计基准。
+   竖排背面的间距也交给 --side-gap（可负），保证"再挤也排得下"。 */
+.topHand .back{width:var(--top-bw,var(--back-w,22px));height:var(--top-bh,var(--back-h,30px));flex:0 0 auto}
+.sideHand .back{width:var(--side-bw,var(--side-w,15px));height:var(--side-bh,var(--side-h,21px));flex:0 0 auto}
+.sideHand .back+.back{margin-top:var(--side-gap,1px)}
+.sideHand .tbox+.tbox{margin-top:var(--side-gap,1px)}
+/* 侧栏亮牌：牌转了 90°，网格列宽要用"牌的宽高互换"后的值（= 牌高） */
+/* ===== 完局亮牌：四家手牌**在原位置翻面**（不重排） =====
+   用户明确要求："结算翻牌的时候，应该是每家手牌原位置翻牌，不要重新排成两排/三排再翻牌"。
+   所以侧栏保持原来的一列（flex-direction:column），只是把 .back 换成正面 .tile；
+   尺寸沿用**同一套变量**（--side-bw/--side-bh，由 fitBacks 按可用高度算），
+   翻牌前后每一张都在原来的位置上，一眼就能看出他家听了什么。
+   ⚠️ 别再加 display:grid + grid-template-columns 那种"平铺重排"——那就是被否掉的做法。 */
+.sideHand.reveal{padding:3px;border-radius:6px;background:rgba(0,0,0,.18)}
+.sideHand .tile{width:var(--side-bw,var(--side-w,22px));height:var(--side-bh,var(--side-h,30px));border-radius:2px}
+/* 对家亮牌：也是**原位置翻面** —— 保持一行（flex 行），牌背换正面，
+   尺寸沿用 --top-bw/--top-bh（fitBacks 按可用宽度算），翻牌前后完全对得上。 */
+.topHand .tile{width:var(--top-bw,var(--back-w,22px));height:var(--top-bh,var(--back-h,30px));border-radius:3px}
+.topHand{flex-wrap:nowrap;gap:2px}
+.topHand .tile{flex:0 1 auto;min-width:0}
+/* 亮牌后：赢家那一排泛金光，方便一眼看出他胡的是什么 */
+.hand.revealWin,.sideHand.revealWin,.topHand.revealWin{
+  background:radial-gradient(ellipse at center,rgba(255,215,0,.20),transparent 72%);
+  border-radius:8px;padding:2px 5px}
+/* 亮牌时副露区也放宽一点，别挤成一条线 */
+.revealMelds .tile.small{width:15px;height:21px;border-radius:2px}
+.revealMelds.topMelds .tile.small{width:18px;height:25px;border-radius:2px}
+/* 当前行动方高亮 */
+.nameTag.cur{background:#ffd700;color:#3a2000;font-weight:700;box-shadow:0 0 8px rgba(255,215,0,.7)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+/* 手牌可胡时整排泛光 */
+.hand.huReady{background:radial-gradient(ellipse at center,rgba(255,215,0,.22),transparent 70%);border-radius:10px}
+
+/* ==================== 手机 / 平板 适配 ====================
+   目标设备：小米 17（约 400×880 CSS px）、iPad Pro 11（约 834×1194）。
+   手机竖屏：牌面整体缩小、弃牌区压缩，保证手牌 + 操作条永远可见；
+   手机横屏 / iPad：空间宽裕，牌面适度放大，操作条同样浮在手牌上方。
+   所有尺寸用 vmin/clamp 做流体缩放，避免某一档设备上元素溢出。 */
+
+/* --- ① 触摸设备通用：加大所有可点元素的命中区 --- */
+@media (pointer:coarse){
+  .tile{cursor:default}
+  .hand .tile{transition:none}            /* 手机上 transform 动画会掉帧 */
+  .hand .tile:active{transform:translateY(-6px)}
+  button{touch-action:manipulation}
+}
+
+/* --- ② 手机竖屏（窄、长）：核心场景 --- */
+@media (max-width:520px){
+  :root{--dt-max-w:32px;--dt-max-h:43px;--dt-budget:0.24;--mel-max-w:25px;--mel-max-h:34px;--wall-tw:11px;--wall-th:15px}
+  /* 他家手牌背面的设计基准（JS 只缩不放，见 fitBacks） */
+  :root{--back-w:24px;--back-h:33px;--side-w:15px;--side-h:21px}
+  /* 牌面按屏宽流体缩放，13 张手牌一行排得下的同时尽量大 */
+  .tile{width:clamp(24px,7.6vw,34px);height:clamp(33px,10.4vw,47px);border-radius:4px}
+  .tile .k{font-size:6px}
+  .back{width:clamp(14px,4.4vw,20px);height:clamp(19px,6vw,27px)}
+  .tile.small{width:20px;height:27px}
+  .melds .tile.small{width:18px;height:25px}
+  #myMelds .meld .tile{width:20px !important;height:27px !important}
+  #myMelds .meldTag{font-size:8px;padding:0 4px}
+
+  /* 手牌区：收紧内边距，给弃牌区腾高度。
+     13 张牌强制一行（换行会让整排变高、把操作条顶飞），
+     牌宽已按 vw 缩过，一行放得下。 */
+  .hand{gap:2px;padding:4px;min-height:0;flex-wrap:nowrap;justify-content:center}
+  .hand .tile{flex:0 1 auto;min-width:0}
+  .hand .tile.drawn{margin-top:-7px}
+
+  /* 三家手牌背面缩小，侧栏收窄。
+     对家 13 张必须一行放下：牌宽按可用宽度算（400px 减去两侧栏），
+     否则会折成两行、上沿顶到标题行。 */
+  .side{width:clamp(40px,11vw,54px)}
+  .sideHand .tile{width:var(--side-bw,var(--side-w,15px));height:var(--side-bh,var(--side-h,21px))}
+  .sideHand{gap:0}
+  .sideHand{max-height:none}
+  .topHand{flex-wrap:nowrap;gap:1px}
+  /* 对家那一排两侧留出「全屏 / 本局详情」两个悬浮按钮的位置：
+     400px 宽的竖屏上，13 张背面对中摆放正好会伸到右上角，
+     被那枚圆形全屏按钮压住一角。留出内边距后由居中逻辑自然让开。 */
+  /* 右上角有悬浮的全屏按钮：只在**右侧**给它让位，左侧不留 —— 两侧都留 44px 会把
+     对家手牌挤到 23×31（比左右两家牌背 37×26 还小，用户实测反馈"对家的牌偏小"）。 */
+  #topHand{padding:0 48px 0 2px}
+  .topHand .tile{width:var(--top-bw,var(--back-w,24px));height:var(--top-bh,var(--back-h,33px));flex:0 1 auto;min-width:0}
+
+  /* 弃牌区：进一步压缩，手机屏幕矮，弃牌是最该让位的 */
+
+/* 左右两家横躺后的**占位尺寸**，与该档 .tile 的尺寸成对（宽高互换）—— 改牌尺寸时必须同步改这里。 */
+  #discardTop,#discardBottom{max-height:13vh}
+  /* 左右弃牌：横向 2 列铺开（一列太窄太长，牌被迫做小；两列矮一半、牌能大一号） */
+  /* 左右两家的容器宽度/对齐见全局规则（横躺牌自动排布）。 */
+  /* 左右两家弃牌与上下两家**同尺寸**（真麻将四家的牌一样大）。
+     注意五万用「伍」、去掉「萬」后牌面只剩一个大号数字，尺寸放大也不会糊。 */
+  /* 最新牌不单独放大（理由见 .tile.latest 的注释）：尺寸恒定 = 牌河不跳动、永不被裁 */
+
+  /* 中央信息块收窄，别把左右弃牌挤没；撑满牌桌高度 → 牌墙+积分板自然落在中线 */
+  .centerInfo{flex:1;min-width:56px;gap:2px}
+  .scoreBoard{font-size:10px;padding:4px 5px;min-width:56px}
+  .info{font-size:11px}
+  .nameTag{font-size:10px;padding:1px 6px}
+
+  /* 操作条贴手牌上方，按钮更大更好按 */
+  #actions{bottom:var(--hand-h,84px);gap:6px;padding:0 4px 6px}
+  #actions button{padding:13px 20px;font-size:16px;min-height:48px}
+  #actions .hint{font-size:12px;padding:5px 10px}
+
+  /* 结算弹窗改成底部抽屉式，手机上更好读。
+     ⚠️ 抽屉底边必须停在「手牌 + 副露」之上：早期贴到 padding:0，
+        面板直接把碰/杠按钮和副露盖住了，结算时看不到自己胡的是哪手牌。 */
+  #result{align-items:flex-end;padding:0 0 var(--reserve,0px)}
+  #result .box{max-width:100%;width:100%;border-radius:16px 16px 0 0;padding:14px;
+    max-height:calc(100dvh - var(--reserve,0px) - var(--sat,0px) - 12px)}
+  /* 收起态：右下角浮窗，底边同样停在底部整摞之上。 */
+  #result.peekMode{align-items:flex-end;justify-content:center;padding:0 8px calc(var(--reserve,0px) + 12px)}
+  #result.peekMode .box{max-width:min(232px,58vw);width:auto;border-radius:14px;max-height:calc(100dvh - var(--reserve,0px) - var(--top-h,60px) - 16px)}
+}
+
+/* --- ③ 手机横屏（高度紧张）：横向压扁一切，优先保证能看见手牌 ---
+   缩放基准用「宽度」而不是高度：880×400 这种比例下，按 vw 等比缩能让
+   手牌 / 操作条 / 副露一起变小，牌桌中央才有足够高度摆得下四家弃牌。
+   ⚠️ 条件必须与 ④ 平板档互斥：小米 17 横屏是 871×400，
+      宽度也 ≥760px、指针也是 coarse，若 ④ 不加高度门槛，
+      iPad 的大牌尺寸会盖到横屏手机上（整桌溢出、层层遮挡）。
+      故 ③ 管「矮屏」，④ 管「宽且高的平板」，用高度把两者切开。 */
+@media (orientation:landscape) and (max-height:520px) and (max-width:1100px){
+  :root{--dt-max-w:26px;--dt-max-h:35px;--dt-budget:0.20;--mel-max-w:22px;--mel-max-h:29px;--wall-tw:10px;--wall-th:14px}
+  /* 横屏又矮又宽：右上角悬着全屏按钮，侧栏整块居中会把名字顶到按钮下面（实测 28×7 相交）→
+     给侧栏一条上边留白，居中位置整体下移半个留白量，名字就落在按钮下方了。 */
+  .side{margin-top:56px}
+  /* 他家手牌背面的设计基准（JS 只缩不放，见 fitBacks） */
+  :root{--back-w:13px;--back-h:18px;--side-w:12px;--side-h:16px}
+  /* 牌面按"宽度"缩放：横屏横向很富裕、纵向极紧张，用 vw 让小屏牌不挤、
+     大屏牌能跟上（871 宽 → 22.6px，比原来 20px 大一档；真正的上限由
+     fitRow/fitBacks 按可用空间和视口高 12% 再收一次，不会把牌桌挤没）。 */
+  .tile{width:clamp(20px,2.6vw,30px);height:clamp(27px,3.6vw,40px);border-radius:3px}
+  .back{width:14px;height:19px}
+  .tile.small{width:15px;height:20px}
+  .melds .tile.small{width:13px;height:18px}
+  .hand{gap:2px;padding:2px;min-height:0}
+  .hand .tile{padding:0}
+  .hand .tile.drawn{margin-top:-5px}
+  /* 右上角悬浮的「全屏」按钮是 40×40、top/right 各 6px，下沿在 y≈46。
+     横屏时左右两家的内容都从牌桌内容区顶部开始（开局 y=22），
+     名字标签正好落在按钮底下 —— 实测右家「上家」被盖掉 28×13（几乎全隐）。
+     给整列留 26px 上内边距，内容一律从按钮下沿下方开始排。
+     左右对称加同样的量，两家的牌尺寸才一致（fitBacks 按名字标签下沿算可用高度，
+     会自动跟着缩，不用手写数值）。
+     侧栏同时加宽到 46px：中央弃牌区的右边界 = 屏宽 − 侧栏宽，正好与按钮
+     左边界（屏宽 − 46）对齐，弃牌区不再被按钮压到（原来压 4×20）。 */
+  .side{width:46px;padding-top:26px}
+  .sideHand .tile{width:var(--side-bw,var(--side-w,12px));height:var(--side-bh,var(--side-h,16px))}
+  /* 对家手牌行同理让出按钮宽度（牌列居中，永远贴不到右上角） */
+  /* 右上角有悬浮的全屏按钮：只在**右侧**给它让位，左侧不留 —— 两侧都留 44px 会把
+     对家手牌挤到 23×31（比左右两家牌背 37×26 还小，用户实测反馈"对家的牌偏小"）。 */
+  #topHand{padding:0 48px 0 2px}
+  .topHand .tile{width:var(--top-bw,var(--back-w,13px));height:var(--top-bh,var(--back-h,18px))}
+
+/* 左右两家横躺后的**占位尺寸**，与该档 .tile 的尺寸成对（宽高互换）—— 改牌尺寸时必须同步改这里。 */
+  #discardTop,#discardBottom{max-height:9vh}
+  /* 矮横屏：ultra/compact 那两条是按 vh 给的、优先级更高，必须一起压下来 ——
+     省出的高度让给中央积分板，否则 5 行分数放不进中排，会往上溢出压对家牌河（实测 26x4）。 */
+  #discardTop,#discardBottom,#discardTop.ultra,#discardBottom.ultra,
+  #discardTop.compact,#discardBottom.compact{max-height:clamp(28px,9.5vh,44px)}
+  /* 说明：这里只给"上下两家牌河"一个软上限（让高度给中央积分板）；真正的收紧在
+     最矮的那一档（<=380px 高）用独立媒体查询做，别一刀切 26px ——
+     400px 高的机器中排有 200px，压到 26px 会把牌河缩成 20×27，
+     和左右两家（26×35）不一致（用户就是按"四家一样大"来验收的）。 */
+  /* 横屏纵向极度紧张：左右弃牌只用 1 列（2 列一换行就顶出格子），
+     牌做小一点，一列换行也矮。格子高度由 JS 钉底，永不越界。 */
+  /* 左右弃牌区的宽度统一在下面给（"2 列横躺牌"的宽）。这里**不要**再按档位单独给宽度：
+     `#discardLeft.compact` 比单类 `#discardLeft` 更具体，会以更高优先级盖掉那个值 ——
+     实测就是这里残留的 29px 让 compact 档退化成 1 列、牌河顶出格子。 */
+  /* 左右/上下四家弃牌统一用上面的 .discardZone .tile 尺寸（真麻将四家牌一样大） */
+  /* 最新牌与普通牌同尺寸（理由见 .tile.latest 的注释） */
+  /* 牌桌再让出一点底部空间：横屏没有操作条时 --reserve 为 0，
+     弃牌区会一直贴到屏幕底边，多出一行就被裁。 */
+  #table{padding-bottom:calc(var(--reserve,0px) + 6px)}
+  /* 中央列回到正常文档流：绝对定位钉在 34% 处时，
+     它会压在左右弃牌的牌河中间（遮挡牌面）。回到流里由 flex 分配宽度，
+     牌河自动让开，不再有任何覆盖。 */
+  /* ⚠️ flex 必须是 1 0 auto（原来写 flex:none）：中排的 justify-content 是 space-between，
+     中央块若不吃余量，多出来的空间就会被平摊到 5 个格子之间 ——
+     左右两家的牌河于是被推到中间去，又变成"没靠自己边的手牌"（实测横屏截图）。
+     shrink 保持 0：积分板 5 行不能被压（压了会溢出压牌河，之前踩过 26x4）。 */
+  .centerInfo{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;
+    position:static;transform:none;
+    min-width:0;z-index:auto;flex:1 0 auto;width:auto}
+  .centerInfo .info{white-space:nowrap}
+  .centerInfo .scoreBoard{min-width:0}
+  /* 横屏纵向极紧张、横向很富裕：弃牌区都改成「横铺多行」的牌河，
+     且贴着牌桌中段摆，把上下的空白收掉。 */
+  /* 左右两家：牌横躺，列数由"格子高度 + flex 换行"自动决定（见全局规则），
+     这里不再固定列数/宽度。 */
+  #discardTop,#discardBottom{flex-wrap:wrap;justify-content:center;gap:2px}
+  /* 左右/上下四家弃牌统一用上面的 .discardZone .tile 尺寸（不再单独给左右两家设尺寸，
+     避免"自己面前的牌小、两侧的牌大"这种不协调）。 */
+
+  .scoreBoard{font-size:9px;padding:2px 4px;line-height:1.28;min-width:50px}
+  .info{font-size:10px;padding:0;line-height:1.1}
+  .nameTag{font-size:9px;padding:0 5px}
+  #topInfo{display:none}          /* 横屏顶部信息行省的十几 px 全给牌桌 */
+  .hand{padding:1px 2px}
+  .melds{padding:0}
+  /* 横屏高度只有 400 上下，操作条压得更扁，避免盖住牌桌。
+     按钮仍保持在 46px 以上（--tap），保证手指点得准。 */
+  #actions{bottom:var(--hand-h,58px);gap:5px;padding:0 4px 3px}
+  #actions button{padding:8px 16px;font-size:15px;min-height:var(--tap);border-radius:22px}
+  #actions .hint{font-size:11px;padding:4px 8px}
+  #log{font-size:10px;padding:2px 6px;max-width:50%}
+  /* 横屏空间是"横多竖少"：结算窗不用底部抽屉（高度不够、必须滚动），
+     改成居中的卡片，宽度能摊开、纵向一行顶一行排得下；点遮罩即收起到角落。 */
+  #result{padding:8px}
+  #result .box{max-width:min(560px,94vw);width:auto;min-width:min(320px,92vw);padding:14px 16px;
+    max-height:calc(100dvh - 16px);border-radius:14px}
+  #result.peekMode{padding:0 8px calc(var(--reserve,0px) + 10px)}
+  #result.peekMode .box{max-width:min(360px,88vw);min-width:0;
+    max-height:calc(100dvh - var(--reserve,0px) - var(--top-h,60px) - 16px)}
+
+  /* 横屏只有 ~400px 高，结算内容**竖排塞不下**：实测内容高 546px，
+     而窗体上限只有 384px —— 「看四家亮牌 / 再来一局」两个按钮要滚动才够得到
+     （等于结算完看不到操作入口）。这里把内容改成**左右两栏**：
+     左栏=胡牌明细，右栏=本局得分+累计积分+按钮；配合收紧字号和内边距，
+     内容高度降到约 250px，一屏看全、不用滚动。 */
+  #result .box{flex-direction:row;flex-wrap:wrap;gap:10px 16px;padding:12px 16px;
+    min-width:min(460px,94vw);max-width:min(620px,94vw)}
+  /* 标题独占一行当"表头"：右上角的「×」（34×34）就有自己的一整条高度，
+     不会压住下面两栏的文字（实测原来压住「你 本局 +24 番」20×21）。
+     padding 左右都给 44px 是为了文字仍然居中，同时右侧正好让开按钮。 */
+  #result h2{flex:1 1 100%;min-height:40px;margin:0;padding:0 44px;font-size:15px;
+    display:flex;align-items:center;justify-content:center}
+  #result .rMain{flex:1 1 0}
+  #result .rSide{flex:1 1 0}
+  #result .peekHint{flex:1 1 100%}
+  #result .line{font-size:11.5px;padding:2px 0}
+  #result .rScores{margin-top:4px}
+  #result .scoreSummary{margin-top:6px;padding:3px 8px}
+  #result .scoreSummary .line{font-size:11.5px}
+  #result .rBtns{margin-top:8px}
+  #result .box button{padding:8px 14px;font-size:12.5px;min-height:36px;border-radius:18px}
+  #result .peekHint{font-size:10px;margin-top:5px}
+  /* 收起态也走双栏：横屏是"宽而矮"，浮窗放宽一点比拉长更合适。
+     收起态的窗体上限是「屏高 − 底部整摞(reserve) − 26」，比展开态还矮，
+     所以行距/按钮再收一档，双栏内容才不会差那十几 px 滚起来。 */
+  /* 横屏两侧副露在 x≈48~81 与 790~823 之间，中间有 ~700px 空档 → 收起态可以放宽，
+     这样两栏内容 + 墙牌都能一行放下，不会顶破高度上限。 */
+  #result.peekMode .box{max-width:min(688px,79vw)}
+  #result.peekMode .box{gap:8px 16px}          /* 收起态窗体上限更紧，行距再省 2px */
+  #result.peekMode h2{min-height:32px}         /* 表头再压 8px：「×」仍完整落在这一行内 */
+  #result.peekMode .line{font-size:11px;padding:1px 0}
+  #result.peekMode .box button{padding:7px 13px;min-height:34px}
+  #result.peekMode .peekHint{margin-top:4px}
+  /* 收起态在 400px 高的横屏里高度只剩 ~210px：提示行藏掉、墙牌缩到 8px 一行排完，
+     否则"未摸到的牌"会把窗体顶出上限（一超就滚动）。 */
+  #result.peekMode .peekHint{display:none}
+  #result.peekMode{--wall-tw:8px;--wall-th:11px}   /* 一行排完 */
+  /* 400px 高的横屏里收起态只剩 ~212px 可用：把"未摸到的牌"的标题省掉、上下留白压到 2px，
+     这几张牌的图案本身就能说明问题（要完整信息点窗体展开即可）。 */
+  #result.peekMode .rWallT{display:none}
+  #result.peekMode .rWall{margin-top:0;padding-top:2px}
+  /* 窗体上下内边距再省 4px（「×」是绝对定位、高度固定，不受影响） */
+  #result.peekMode .box{padding:6px 14px}
+  /* 「再来一局」搬到底部后，横屏收起态（只剩 ~212px）会差 ~11px → 上边距与按钮内边距各压一档。 */
+  #result.peekMode .rBtns{margin-top:2px}
+  #result.peekMode .rBtns button{padding:5px 12px;min-height:30px}
+  #result.peekMode .line{font-size:10.5px;padding:0}
+  #result.peekMode .rWallG .tile{width:8px;height:11px}
+  /* 收起态在矮横屏要**再省掉「累计积分」那一块**（约 100px）：窗体上限是
+     「屏高 − 底部整摞 − 顶部对家那一摞」，400px 高的屏只剩 ~290px，
+     而两张表加起来要 319px → 会滚起来（实测裁切 23px）。
+     累计积分在牌桌中央的积分板上本来就看得到，收起态省掉它不丢信息。 */
+  #result.peekMode .scoreSummary{display:none}
+  /* 墙牌块再省一档：400 高的横屏窗体上限只有 ~384px，原来超 12px（一超就滚动、等于白做）。 */
+  #result .rWall{margin-top:4px;padding-top:4px}
+  #result .rWallT{font-size:10px;margin-bottom:2px}
+  #result .rWallG .tile{width:8px;height:11px}
+}
+
+/* --- ④ iPad / 平板（宽且高）：空间充足，牌面放大，触控更从容 ---
+   ⚠️ 必须带高度门槛（min-height:560px）：否则手机横屏（871×400）
+      也会命中这一档，被套上 iPad 的大尺寸牌 → 整桌溢出、层层遮挡。
+      高度门槛让 ④ 只管真正的平板（iPad 竖 834×1194 / 横 1194×834 都满足）。 */
+@media (min-width:760px) and (min-height:560px) and (pointer:coarse){
+  :root{--dt-max-w:46px;--dt-max-h:62px;--dt-budget:0.22;--mel-max-w:39px;--mel-max-h:51px;--wall-tw:17px;--wall-th:24px}
+  /* 他家手牌背面的设计基准（JS 按实测空间缩放，见 fitBacks） */
+  :root{--back-w:25px;--back-h:34px;--side-w:22px;--side-h:30px}
+  /* 手牌上限 54→58：11 寸以上的平板多利用一点横向空间（JS 还会按
+     "行宽 + 视口高 12%" 再收一次，不会撑爆）。
+     ⚠️ 弃牌区那几十条尺寸刻意不动：它们是按「格子宽 ÷ 牌宽 = 每行几张」
+     调出来的，随手放大 12% 就会从「每行 2 张」掉成「每行 1 张」，
+     18 张弃牌排成 18 行、被 overflow:hidden 裁掉一半（实测踩过一次）。
+     大屏上弃牌的放大交给"牌数分档"(compact/ultra) 与牌河自动换行去消化。 */
+  .tile{width:clamp(40px,5.4vw,58px);height:clamp(55px,7.4vw,79px);border-radius:6px}
+  .back{width:clamp(22px,3vw,30px);height:clamp(30px,4.1vw,41px)}
+  .tile.small{width:32px;height:43px}
+  .melds .tile.small{width:28px;height:38px}
+  .hand{gap:4px;padding:8px;min-height:0}
+  .hand .tile.drawn{margin-top:-11px}
+  .side{width:78px}
+  .sideHand .tile{width:var(--side-bw,var(--side-w,22px));height:var(--side-bh,var(--side-h,30px))}
+  .topHand .tile{width:var(--top-bw,var(--back-w,25px));height:var(--top-bh,var(--back-h,34px))}
+
+/* 左右两家横躺后的**占位尺寸**，与该档 .tile 的尺寸成对（宽高互换）—— 改牌尺寸时必须同步改这里。 */
+  /* 左右两家：容器宽度/对齐见全局规则；牌尺寸与上下两家统一（用上面的 .discardZone .tile）。 */
+  .centerInfo{flex:1;min-width:88px}
+  /* 文字也跟着屏幕走（固定 13px 在大平板上偏小） */
+  .scoreBoard{font-size:clamp(12px,1.45vw,17px);padding:7px 9px;min-width:88px}
+  .nameTag{font-size:clamp(12px,1.4vw,16px);padding:2px 10px}
+  /* iPad 按钮加大到 Apple 建议的 44pt 以上，操作条仍在手牌正上方 */
+  #actions{bottom:var(--hand-h,120px);gap:12px;padding:0 8px 12px}
+  #actions button{padding:15px 30px;font-size:19px;min-height:54px;border-radius:30px}
+  #actions .hint{font-size:15px;padding:8px 16px}
+  #result .box{max-width:420px;padding:22px}
+}
+
+/* --- ⑤ 大屏（桌面浏览器 / 超宽窗口，鼠标或触控板）：按分辨率流体放大 ---
+   桌面原来用写死的 38×52px，窗口再大牌也不会变，白白空着大片桌面。
+   这一档把整套牌面绑到一个流体单位 --tw5 上（vw 与 vh 取小，
+   所以超宽屏和超高屏都不会失控），分辨率越高牌越大，上限 64px。
+   只加不改：前四档一条没动，手机/平板的表现与优化前完全一致。
+   用 pointer:fine 把触屏设备排除在外，避免和 ④ 平板档抢规则。 */
+@media (min-width:1101px) and (pointer:fine){
+  :root{--dt-max-w:64px;--dt-max-h:86px;--dt-budget:0.22;--mel-max-w:48px;--mel-max-h:64px;--wall-tw:22px;--wall-th:30px}
+  :root{
+    --tw5:clamp(22px,min(2.7vw,3.4vh),64px);
+    --back-w:calc(var(--tw5)*0.58);
+    --back-h:calc(var(--tw5)*0.79);
+    --side-w:calc(var(--tw5)*0.58);
+    --side-h:calc(var(--tw5)*0.79);
+  }
+  .tile{width:var(--tw5);height:calc(var(--tw5)*1.36)}
+  .tile.small{width:calc(var(--tw5)*0.74);height:calc(var(--tw5)*1)}
+  .back{width:calc(var(--tw5)*0.58);height:calc(var(--tw5)*0.79)}
+  .melds .tile.small{width:calc(var(--tw5)*0.63);height:calc(var(--tw5)*0.87)}
+  #myMelds .meld .tile{width:calc(var(--tw5)*0.58) !important;height:calc(var(--tw5)*0.79) !important}
+  .side{width:calc(var(--tw5)*1.85)}
+  .sideHand .tile{width:var(--side-bw,var(--side-w,15px));height:var(--side-bh,var(--side-h,21px))}
+.topHand .tile{width:var(--top-bw,var(--back-w,22px));height:var(--top-bh,var(--back-h,30px))}
+
+/* 左右两家横躺后的**占位尺寸**，与该档 .tile 的尺寸成对（宽高互换）—— 改牌尺寸时必须同步改这里。 */
+  /* 左右两家：容器宽度/对齐见全局规则；牌尺寸与上下两家统一（用上面的 .discardZone .tile）。 */
+  .scoreBoard{font-size:clamp(12px,calc(var(--tw5)*0.34),18px)}
+  .nameTag{font-size:clamp(11px,calc(var(--tw5)*0.3),16px)}
+  #actions button{font-size:clamp(15px,calc(var(--tw5)*0.44),21px);min-height:clamp(44px,calc(var(--tw5)*1.2),60px)}
+}
+/* ===================== 掷色子 / 起名字 两个浮层 =====================
+   层级从高到低：#nameDlg(70) > #dice(50) > 结算窗(40) > 手牌(16)。
+   两者都是"居中卡片 + 半透明遮罩"，卡片高度一律卡在可视高度内并允许滚动，
+   所以在 340px 高的横屏上也不会撑出屏幕（这是本页反复踩过的坑）。 */
+#dice,#nameDlg{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  padding:12px;overscroll-behavior:contain}
+#dice{z-index:50;background:rgba(0,0,0,.42)}
+/* 取名层要输入：安卓弹出键盘时布局视口不缩、卡片居中的话会被键盘压住，
+   所以靠上排（留 8vh），键盘顶上来也仍能看见输入框和按钮。 */
+#nameDlg{z-index:70;background:rgba(0,0,0,.68);align-items:flex-start;padding-top:8vh}
+#dice.on,#nameDlg.on{display:flex}
+#dice .diceBox,#nameDlg .nameBox{background:#fff;color:#22312a;border-radius:16px;
+  padding:16px 18px;max-width:342px;width:100%;box-shadow:0 10px 34px rgba(0,0,0,.5);
+  max-height:calc(100dvh - 24px);overflow:auto}
+/* --- 色子 --- */
+#dice .diceBox{text-align:center}
+#dice .dTop{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+  font-size:12.5px;font-weight:700;color:#0b3d2e}
+#dice .dTop .dj{color:#a35b00}
+#dice .dRow{display:flex;justify-content:center;gap:14px;margin:12px 0 8px}
+#dice .die{width:clamp(46px,13vw,64px);height:clamp(46px,13vw,64px)}
+#dice .die svg{width:100%;height:100%;display:block}
+#dice .dSum{font-size:16px;font-weight:800;color:#0b3d2e;letter-spacing:.5px}
+#dice .dInfo{font-size:12.5px;line-height:1.65;color:#3a5a4c;margin-top:8px;text-align:left}
+#dice .dInfo b{color:#a35b00}
+#dice .dTip{font-size:11.5px;color:#88a094;margin-top:10px}
+/* 摇色子时的抖动：只动 transform，不参与布局，不会影响任何尺寸测量 */
+@keyframes dieShake{0%{transform:rotate(-9deg) translateY(-2px)}50%{transform:rotate(8deg) translateY(2px)}100%{transform:rotate(-9deg) translateY(-2px)}}
+#dice .die.rolling{animation:dieShake .12s linear infinite}
+/* --- 起名 --- */
+#nameDlg .nameBox{max-width:364px}
+#nameDlg h3{font-size:16px;margin:0 0 6px;color:#0b3d2e}
+#nameDlg .nTip{font-size:12px;line-height:1.6;color:#5d6f66;margin:0 0 12px}
+#nameDlg .nTip b{color:#a35b00}
+#nameDlg .nRow{display:flex;gap:8px;align-items:stretch}
+#nameDlg input{flex:1 1 auto;min-width:0;font-family:inherit;font-size:16px;padding:11px 12px;
+  border-radius:10px;border:1.5px solid #cfd8d3;background:#f8faf9;color:#123}
+#nameDlg input:focus{outline:none;border-color:#0b3d2e;background:#fff}
+#nameDlg .nRow button{flex:0 0 auto;white-space:nowrap}
+#nameDlg .nBtns{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
+#nameDlg .nBtns button{flex:1 1 auto;min-width:120px}
+#nameDlg .nWarn{font-size:11.5px;color:#c0392b;line-height:1.6;margin:10px 0 0;display:none}
+#nameDlg .nWarn.on{display:block}
+/* 矮横屏（400px 上下）再压一档，保证卡片连按钮一起进屏幕 */
+@media (orientation:landscape) and (max-height:520px){
+  #dice .diceBox,#nameDlg .nameBox{padding:12px 14px;border-radius:14px}
+  #dice .dRow{margin:8px 0 6px;gap:10px}
+  #dice .die{width:clamp(38px,9vw,52px);height:clamp(38px,9vw,52px)}
+  #dice .dInfo{font-size:11.5px;line-height:1.5}
+  #nameDlg h3{font-size:14.5px;margin-bottom:4px}
+  #nameDlg .nTip{font-size:11.5px;margin-bottom:8px}
+  #nameDlg .nBtns{margin-top:8px}
+}
+
+/* 极矮横屏（机身窄高比 >2，例如 800x340）：中排只剩 ~63px，上下两家的牌河必须让位，
+   否则中央积分板（5 行）会往上溢出压住对家的牌河（实测 26x4）。
+   放在所有档位**之后**：同优先级下后者胜，才能盖掉上面那条 clamp 上限。 */
+@media (orientation:landscape) and (max-height:380px) and (max-width:1100px){
+  /* 极矮横屏（≤380 高）：窗体内容本来就超过 max-height（一直是滚动看），
+     再塞墙牌只会把「再来一局」推得更远 → 这里不显示。 */
+  #result .rWall{display:none}
+  #discardTop,#discardBottom,#discardTop.ultra,#discardBottom.ultra,
+  #discardTop.compact,#discardBottom.compact{max-height:26px}
+}
+
+/* ===== 四家副露：**统一尺寸**（写在所有媒体查询之后，保证压过各档写死的值）=====
+   ⚠️ 以前四家各写各的：自己 20×27（#myMelds 的 !important）、对家 14×20（.topMelds）、
+      左右两家 10.9×14.7（--smw/--smh = 手牌×0.42）—— 手牌一变就对不上，
+      而且彼此差了一倍，看上去"每家的副牌区比例都不一样"（用户实测反馈）。
+   现在只有一个来源：JS 按手牌尺寸算出 --mel-w/--mel-h，四家共用。 */
+.melds .tile.small,.otherMelds .tile.small,.topMelds .tile.small,
+.revealMelds .tile.small,.revealMelds.topMelds .tile.small,
+#myMelds .meld .tile,#topMelds .meld .tile{
+  width:var(--mel-w,20px) !important;height:var(--mel-h,27px) !important;border-radius:3px}
+/* 对家副露：牌变大后原来 32px 的 max-height 会把第二行裁掉（四副会换行）。
+   高度交给内容自己定，溢出让布局引擎去处理。 */
+.topMelds{max-height:none}
+/* ⚠️ `.otherMelds .meld{max-width:100%}` 会把侧栏那副横躺的牌按**占位盒宽**裁掉：
+   占位盒宽只有"牌高+4"，而一副牌横着要 3~4 张牌宽 → 后两张被 overflow:hidden 吃掉。 */
+#leftMelds .meld,#rightMelds .meld{max-width:none;overflow:visible}
+
+/* ===== 有预选牌时，其它牌一律"收回手牌"（写在最后，压过各档的 .drawn margin-top）=====
+   同一时间**只能有一张牌立起来**：立起来的那张 = 预选牌（或建议牌）。
+   "刚摸到"的那张收平、只留一圈细金环（信息不丢，但不再和预选牌抢视觉）。 */
+#myHand.picking .tile.drawn{margin-top:0 !important;box-shadow:none;
+  outline:2px solid rgba(255,215,0,.7);outline-offset:1px}
+#myHand.picking .tile.sug{outline:none;background:none;animation:none}
+/* ⚠️ 收起态是"结算时默认的样子"，窗宽只有 ~232px（要给两侧副露让位），
+   内容会比高度上限还高 → 一超就滚动、等于白做。累计积分在牌桌中央的积分板上本来就看得到，
+   这里省掉它（本局得分仍逐家列出）；点窗体/「本局详情」展开后会重新出现。 */
+#result.peekMode .scoreSummary{display:none}
+/* 收起态的行距/标题压一档：窗宽只有 ~232px（给两侧副露让位），要同时装下
+   标题 + 胡牌过程 + 本局得分 + **未摸到的牌** + 提示，必须把每行压缩。 */
+#result.peekMode .line{font-size:11px;padding:1px 0}
+#result.peekMode h2{font-size:15px;margin:2px 0;min-height:34px}   /* "×" 就长在这一行，别压没高度 */
+#result.peekMode .rWall{margin-top:5px;padding-top:4px}
+#result.peekMode .rWallT{font-size:10px;margin-bottom:1px;line-height:1.1}
+</style>
+</head>
+<body>
+<div id="table">
+  <div class="info" id="topInfo">对家</div>
+  <div class="row topHand" id="topHand"></div>
+  <div class="row topMelds" id="topMelds"></div>
+  <div style="display:flex;flex:1;align-items:stretch;min-height:0">
+    <div class="side"><div class="nameTag" id="leftName">上家</div><div class="sideHand" id="leftHand"></div></div>
+    <div class="center">
+      <!-- 对家弃牌（上） -->
+      <div class="discardZone" id="discardTop"></div>
+      <div class="midRow">
+        <!-- 下家：副露摆在他自己前面（在牌河外侧、紧挨着）+ 弃牌（左） -->
+        <div class="otherMelds" id="leftMelds"></div>
+        <div class="discardZone" id="discardLeft"></div>
+        <!-- 中央：牌墙剩余 + 积分板 -->
+        <div class="centerInfo">
+          <div class="info" id="wallInfo"></div>
+          <div class="scoreBoard" id="scoreBoard"></div>
+        </div>
+        <!-- 上家：弃牌（右）+ 副露摆在他自己前面（在牌河外侧、紧挨着） -->
+        <div class="discardZone" id="discardRight"></div>
+        <div class="otherMelds" id="rightMelds"></div>
+      </div>
+      <!-- 自己弃牌（下） -->
+      <div class="discardZone" id="discardBottom"></div>
+    </div>
+    <div class="side"><div class="nameTag" id="rightName">下家</div><div class="sideHand" id="rightHand"></div></div>
+  </div>
+  <div class="row" id="myMelds"></div>
+  <!-- 操作区：不再放在最底部（拇指/手掌会压住、手机下端也最容易误触），
+       改为浮在手牌上方、贴近手牌的悬浮条，视线和手指都在同一区域。 -->
+  <div id="actions"></div>
+  <div class="hand" id="myHand"></div>
+  <!-- 手牌托板：纯装饰层，盖在手牌与底部留白之下，不参与布局、不吃点击 -->
+  <div id="shelf"></div>
+</div>
+<div id="log"></div>
+<!-- 右上角悬浮控件：全屏开关 + 结算窗收起后重新打开的入口。
+     两者只是覆盖在角落，不参与牌桌布局，任何屏幕比例下都不会挤到别人。 -->
+<button id="fsBtn" type="button" aria-label="全屏" title="全屏">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <g class="out" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5"/>
+    </g>
+    <g class="in" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 4v5H4M15 20v-5h5M15 4v5h5M9 20v-5H4"/>
+    </g>
+  </svg>
+</button>
+<!-- 音效开关：与右上角的全屏按钮并排（同款圆形）。默认开，开关状态存在 localStorage。 -->
+<button id="sndBtn" type="button" aria-label="音效开" title="音效：开（点击关闭）">
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <g class="on" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4z"/>
+      <path d="M15.6 9.3a4 4 0 0 1 0 5.4M18.1 6.9a7.4 7.4 0 0 1 0 10.2"/>
+    </g>
+    <g class="off" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 9.5h3.2L12 5.6v12.8L7.2 14.5H4z"/>
+      <path d="M16.2 9.6l4.6 4.8M20.8 9.6l-4.6 4.8"/>
+    </g>
+  </svg>
+</button>
+
+<div id="endBtns">
+  <button id="reopen" type="button">本局详情</button>
+  <button id="againBtn" type="button">再来一局</button>
+</div>
+<div id="result"><div class="box" id="resultBox"></div></div>
+<!-- 掷色子：每局开局由庄家掷两颗色子，定「从哪一家的牌墙、右数第几墩开始取牌」。
+     之后的局由上一局胜家坐庄并掷色子（胜家先拿先出牌）。 -->
+<div id="dice">
+  <div class="diceBox" id="diceBox">
+    <div class="dTop"><span id="dHand">第 1 局</span><span class="dj" id="dDealer">庄家</span></div>
+    <div class="dRow">
+      <div class="die rolling" id="dieA"></div>
+      <div class="die rolling" id="dieB"></div>
+    </div>
+    <div class="dSum" id="dSum">摇色子…</div>
+    <div class="dInfo" id="dInfo"></div>
+    <div class="dTip" id="dTip">点任意处开始摸牌</div>
+  </div>
+</div>
+<!-- 首次进入取名字：名字是本地积分记录的键，存在浏览器 localStorage 里 -->
+<div id="nameDlg">
+  <div class="nameBox" id="nameBox">
+    <h3 id="nTitle">先给自己取个名字</h3>
+    <p class="nTip" id="nTip">积分按这个名字记在<b>本机浏览器</b>里，下次打开自动接着算。</p>
+    <div class="nRow">
+      <input id="nameInput" maxlength="5" autocomplete="off" spellcheck="false" enterkeyhint="done" placeholder="四个字，比如「清风雀神」">
+      <button id="nameReroll" type="button" class="gray">换一个</button>
+    </div>
+    <div class="nBtns">
+      <button id="nameOk" type="button">就叫这个</button>
+      <button id="nameClear" type="button" class="gray" style="display:none">清空这个记录</button>
+    </div>
+    <p class="nWarn" id="nWarn"></p>
+  </div>
+</div>
+
+<script>
+const SUIT=['万','条','筒'];
+const cname=c=>(c%9+1)+SUIT[(c/9)|0];
+const emptyC=()=>new Array(27).fill(0);
+const toList=c=>{const a=[];for(let i=0;i<27;i++)for(let k=0;k<c[i];k++)a.push(i);return a;};
+const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;};
+
+function checkMelds(c){
+  let i=0;while(i<27&&c[i]===0)i++;
+  if(i===27)return true;
+  if(c[i]>=3){c[i]-=3;const ok=checkMelds(c);c[i]+=3;if(ok)return true;}
+  if(i%9<=6&&c[i+1]>0&&c[i+2]>0){c[i]--;c[i+1]--;c[i+2]--;const ok=checkMelds(c);c[i]++;c[i+1]++;c[i+2]++;if(ok)return true;}
+  return false;
+}
+function isSevenPairs(c){let p=0;for(let i=0;i<27;i++){if(c[i]===0)continue;if(c[i]===2)p++;else if(c[i]===4)p+=2;else return false;}return p===7;}
+// 注意：贵阳捉鸡麻将【没有缺一门/定缺】要求（DoubleWin 规则对比表：定缺 ❌）。
+// 这里不再提供 isQue，历史上误加的缺门判定已全部移除。
+function canHuShape(c){if(isSevenPairs(c))return true;for(let i=0;i<27;i++){if(c[i]>=2){c[i]-=2;const ok=checkMelds(c);c[i]+=2;if(ok)return true;}}return false;}
+// 把已副露的牌按真实规则补进计数：碰/明杠/暗杠均视为「一副面子」
+// 注意：杠虽然占 4 张实物牌，但在牌型判定中只等于一副面子（3 张的位置），
+// 若按 4 张计入会让总张数变成非法值（如 15 张），导致 checkMelds 永远拆不开。
+// 原实现只看暗牌，导致「大对子」这类靠副露成型的牌被误判为不能胡。
+function fullCount(hand,melds){
+  const c=hand.slice();
+  (melds||[]).forEach(m=>{c[m.card]+=3;});
+  return c;
+}
+// 已副露的面子数（每副 3 张）
+function meldTiles(melds){return (melds||[]).reduce((a,m)=>a+(m.type==='gang'?4:3),0);}
+// ===== 牌型识别（依 DoubleWin《贵阳捉鸡完全规则》权威版）=====
+// 番型总表（互斥，取最高）：
+//   天胡 33 / 地胡 23 / 清龙七对 20 / 清七对 17 / 清大对 15 /
+//   龙七对 10 / 清一色 10 / 七对 7 / 大对子 5 / 平胡 1
+// 额外加成：杠上花 +1 番（「带杠」不再折番 —— 豆按 2/3/1 单独结算，见 douSettle）
+// 无缺门、无字牌、不能吃，四副面子 + 一对将（副露面子一并计入）
+function isAllPairs(c){                     // 大对子：4 刻子 + 1 对（无顺子）
+  let pairs=0;
+  for(let i=0;i<27;i++){
+    if(c[i]===0)continue;
+    if(c[i]===3)continue;
+    if(c[i]===2)pairs++; else return false;
+  }
+  return pairs===1;
+}
+function isOneSuit(c){                       // 清一色：只有一门花色有牌
+  let used=0;
+  for(let s=0;s<3;s++){
+    let hit=false;
+    for(let i=s*9;i<s*9+9;i++)if(c[i]>0)hit=true;
+    if(hit)used++;
+  }
+  return used===1;
+}
+// 龙七对：七对 + 【至少】1 组四归一（4 张相同）。
+// DoubleWin 原文：「龙七对 10 —— 七对 + 至少 1 个四归一」。
+// 注意「至少」二字：如果写成「恰好 1 组四归一」，那两个四归一（8 张）的
+// 形态就会被漏判、掉到低一档的七对，这是错的。
+//   · 0 组四归一 → 七对
+//   · ≥1 组四归一 → 龙七对（番表无「双龙七对」，多个四归一同档）
+function sevenPairsInfo(c){
+  let pairs=0,quads=0;
+  for(let i=0;i<27;i++){
+    if(c[i]===0)continue;
+    if(c[i]===2)pairs++;
+    else if(c[i]===4)quads++;
+    else return null;                      // 出现 1 张或 3 张 → 不是七对结构
+  }
+  if(pairs+quads*2!==7)return null;        // 总对数必须恰好 7 对
+  return {pairs,quads};
+}
+function isSevenPairs(c){return !!sevenPairsInfo(c);}
+function isLongQiDui(c){                   // 龙七对：七对且至少 1 组四归一
+  const info=sevenPairsInfo(c);
+  return !!info&&info.quads>=1;
+}
+// 基础牌型（不含杠/杠上花/天胡地胡加成）
+// c 为「含副露」的完整计数（副露按 3 张/面子计入）
+//
+// 关于「清一色」的判定口径（易错点）：
+//   清X 只表示「只有一门花色」，并不要求该牌型把副露也算成全同花色。
+//   例：碰了一副筒子的人，手上万子凑成七对 —— 这仍然是「清七对」。
+//   因此这里统一用「手牌（不含副露）是否单一花色」来定清一色，
+//   而不是对 fullCount（含副露）判 —— 后者会被副露的花色污染，
+//   导致清七对退化成七对、清一色退化成平胡。
+// c 传入的是 fullCount(hand, melds)；用 meldCards 传回副露牌，
+// 便于把「暗牌部分」还原出来做花色判定。
+function huPattern(c, meldCards){
+  const mc=meldCards||[];
+  // 「清」= **整副牌**（暗牌 + 副露）同一门花色 —— 清一色 / 清大对 / 清七对 / 清龙七对 共用。
+  // 🔴 老实现先把副露那张牌各扣回 3 张、只用"暗牌"判清一色 → 于是
+  //    "手里全万、副露却是筒" 也被算成清一色/清大对（用户实测反馈：大对子写成"清大对"）。
+  //    这里必须判 **c**（= hand + melds，见 fullCount）。
+  const one=isOneSuit(c);
+  // 七对类：必须暗牌 14 张（有副露就不可能七对）
+  const dark14=(c.reduce((a,b)=>a+b,0)===14&&mc.length===0);
+  if(dark14){
+    const info=sevenPairsInfo(c);
+    if(info){
+      // DoubleWin 番表：龙七对 = 七对 + 至少 1 个四归一（含多个四归一）
+      if(info.quads>=1)return {fan:one?20:10,name:one?'清龙七对':'龙七对'};
+      return {fan:one?17:7,name:one?'清七对':'七对'};
+    }
+  }
+  if(!canHuShape(c))return null;
+  const allPairs=isAllPairs(c);
+  // **大吊车** = 4 副露 + 单钓（手里只剩一对将，等一张凑将）17 点。
+  //   本作没有"吃"，4 副露必然都是碰/杠（刻子）→ 形状与大对子重合，靠"副露数 = 4"区分。
+  //   表里没有"清大吊车"档位 → 清一色的也按大吊车 17 点（取最高：17 > 清大对 15）。
+  if(allPairs&&mc.length===4)return {fan:17,name:'大吊车'};
+  if(allPairs)return {fan:one?15:5,name:one?'清大对':'大对子'};
+  return {fan:one?10:1,name:one?'清一色':'平胡'};
+}
+// 判断是否满足「平胡以上的牌型」——这类牌型无豆（无杠）也可点炮胡
+// 「大胡」= **大对子（12 点）及以上**（无豆时大胡可直接吃胡；平胡/鸡胡只能自摸）。
+// ⚠️ 现番表里 大对子=5、平胡=1 → 阈值取 5 就等于「大对子及以上」；改番表时同步这个数。
+const BIG_FAN=5;
+/* ===== 番值表（**权威**，2026-09-15 与用户逐条确认）=====
+     天胡 33 ｜ 地胡 23 ｜ 清龙七对 20 ｜ 清七对 17 ｜ 清大对 15
+     天听 34 ｜ 报听 17 ｜ 大吊车 17 ｜ 开局跟 4          （表外补充，见 番型核查.md）
+     龙七对 10 ｜ 清一色 10 ｜ 七对 7 ｜ 大对子 5 ｜ 平胡 1
+   ⚠️ BIG_FAN（无豆点炮胡的门槛）= 5 必须等于"大对子"；改这张表要同步改它。
+   ⚠️ 本表是**取最高**口径（不是叠加）—— 改口径只需动 settle 里的 baseFan 计算一处。 */
+function isBigPattern(p){return !!p&&p.fan>=BIG_FAN;}
+// 基础番 = 牌型番 + 每个杠 +1 番 + 杠上花 +1 番
+// melds 为刚胡时的副露列表；opts.gangFlower 表示本张牌是杠后摸到的（杠上花）
+function gangBonus(melds){return (melds||[]).filter(m=>m.type==='gang').length;}
+function canHu(hand,melds,opts){
+  const full=fullCount(hand,melds);
+  const pat=huPattern(full,(melds||[]).map(m=>m.card));
+  if(!pat)return false;                                     // 牌型不成
+  const hasDou=(melds||[]).some(m=>m.type==='gang');        // "豆"= 任意杠
+  const zimo=!!(opts&&opts.zimo);
+  // 豆豆通行证：有豆可胡任意番型（含平胡）；
+  // 无豆点炮必须 ≥5 番的大牌；自摸不受限制。
+  // 带杠本身加番，故用总番数（含每杠 +1）与 5 比较。
+  // 无豆时：只有「大对子（12 点）及以上」能点炮胡（平胡/鸡胡只能自摸）；自摸不受限。
+  // force：报听者打出的牌，别人**无豆也能平胡**（规则原文）→ 由调用方传 force:true
+  if(!hasDou&&!zimo&&pat.fan<BIG_FAN&&!(opts&&opts.force))return false;
+  return true;
+}
+// 供 UI / 结算使用：取当前手牌的牌型（含杠加成与自摸加成）
+// opts.zimo      —— 自摸（番数 +1，与牌型无关）
+// opts.gangFlower —— 杠上花（番数 +1）
+function currentPattern(hand,melds,opts){
+  const p=huPattern(fullCount(hand,melds),(melds||[]).map(m=>m.card));
+  if(!p)return null;
+  const o=opts||{};
+  const gb=(o.gangFlower?1:0)+(o.zimo?1:0);   // 豆不折进番数（单独结算），这里只算杠上花/自摸
+  const parts=[p.name];
+  if(gb)parts.push('+'+gb+'番');
+  return {fan:p.fan+gb,name:parts.join(''),base:p.fan,gang:gb,zimo:!!o.zimo};
+}
+// 幺鸡=1条(9) / 乌骨鸡=8筒(25)：真牌策略是「不要第一个打出去」
+function isChickenTile(c){return c===9||c===25;}
+function aiDiscard(hand){
+  let best=-1,bs=1e9;
+  for(let i=0;i<27;i++){
+    if(hand[i]===0)continue;
+    let sc=hand[i]*10;
+    if(i%9>0)sc+=hand[i-1]*3;
+    if(i%9<8)sc+=hand[i+1]*3;
+    if(i%9>1)sc+=hand[i-2];
+    if(i%9<7)sc+=hand[i+2];
+    if(isChickenTile(i))sc+=40;   // 打出去等于送鸡给叫牌家：AI 尽量留着幺鸡/乌骨鸡不当出头鸟
+    if(sc<bs){bs=sc;best=i;}
+  }
+  return best;
+}
+
+// ===== 电脑玩家 AI 增强（中等偏强档）=====
+// 设计说明：原 aiDiscard(hand) 只做「孤张优先丢」的静态启发，无听牌计算、无防守。
+// 这里新增一套以「向听数」为核心的评估体系，供 aiDiscardSmart(p) 使用。
+// 原 aiDiscard 保留不动，兼容既有测试。
+
+// 向听数：距离胡牌还差几张（-1 = 已胡，0 = 听牌，n = 还差 n 张）
+// 算法：递归枚举「拆刻子 / 拆顺子 / 拆对子」，统计每种拆法的
+//       (面子数 m, 搭子数 t, 是否有将 eye)，用标准公式取最优。
+// 公式：shanten = 8 - 2*m - t - (eye?1:0)
+//   m 上限 4（4 副面子），t 上限 4-m（剩下的搭子）
+// meldCount：已有副露面子数（每副算 1 个完整面子，直接计入 m）
+// shanten 记忆化缓存：key = 27 位手牌指纹 + 副露数。
+// usefulTiles 会对同一手牌反复试算 27 张补牌，命中率极高，缓存能大幅提速。
+// 容量上限 20000 条，超限时整体清空（手牌指纹高度重复，重建成本很低），
+// 避免长时间连续对局导致内存无界增长。
+const SH_CACHE=new Map();
+const SH_CACHE_MAX=20000;
+function handKey(c,mc){
+  let k=String.fromCharCode(48+mc);
+  for(let i=0;i<27;i++)k+=String.fromCharCode(48+(c[i]>9?9:c[i]));
+  return k;
+}
+// 向听数：距离胡牌还差几张（-1 = 已胡，0 = 听牌，n = 还差 n 张）
+// 重要：入参 c 必须是【含副露的完整计数】（即 fullCount 的结果）。
+// 因为副露在牌型判定里就等于一副面子，c 里已含这些牌，所以递归拆出的
+// 面子数本身就是「总面子数」，meldCount 只用于限制"还能再拆几副"（4 副面子上限）。
+// 曾经的错误：mc 被当作额外面子叠加到公式里，导致副露越多 shanten 越负（出现 -8 这种非法值）。
+function shanten(c, meldCount){
+  const mc=meldCount||0;
+  const key=handKey(c,mc);
+  const hit=SH_CACHE.get(key);
+  if(hit!==undefined)return hit;
+  let best=99;
+  const a=c.slice();
+  function rec(i, m, t, eye){
+    if(i>=27){
+      // 总面子数 m（含副露，因为 c 里含副露牌）；受上限 4 约束
+      const mm=Math.min(m,4);
+      const tt=Math.min(t,4-mm);
+      const sh=8-2*mm-tt-(eye?1:0);
+      if(sh<best)best=sh;
+      return;
+    }
+    if(best<=-1)return;                  // 已算出「已胡」，不可能更优
+    if(a[i]===0){rec(i+1,m,t,eye);return;}
+    // ① 拆刻子（面子数已达 4 就不再多拆，避免无意义枚举）
+    if(a[i]>=3&&m<4){
+      a[i]-=3; rec(i,m+1,t,eye); a[i]+=3;
+    }
+    // ② 拆顺子（同花色内 i,i+1,i+2）
+    if(m<4&&i%9<=6&&a[i]>0&&a[i+1]>0&&a[i+2]>0){
+      a[i]--;a[i+1]--;a[i+2]--;
+      rec(i,m+1,t,eye);
+      a[i]++;a[i+1]++;a[i+2]++;
+    }
+    // ③ 拆对子（先当将，再当搭子）
+    if(a[i]>=2){
+      a[i]-=2;
+      if(!eye) rec(i,m,t,true);        // 当将
+      rec(i,m,t+1,eye);                // 当搭子（对子算一个搭子）
+      a[i]+=2;
+    }
+    // ④ 拆两面/嵌张搭子
+    if(i%9<=7&&a[i]>0&&a[i+1]>0){
+      a[i]--;a[i+1]--; rec(i,m,t+1,eye); a[i]++;a[i+1]++;
+    }
+    if(i%9<=6&&a[i]>0&&a[i+2]>0){
+      a[i]--;a[i+2]--; rec(i,m,t+1,eye); a[i]++;a[i+2]++;
+    }
+    // ⑤ 该张留作孤张
+    a[i]--; rec(i,m,t,eye); a[i]++;
+  }
+  rec(0,0,0,false);
+  if(SH_CACHE.size>=SH_CACHE_MAX)SH_CACHE.clear();
+  SH_CACHE.set(key,best);
+  return best;
+}
+
+// 有效进张：当前手牌再摸一张后，能「降低向听数」的牌共有多少张（考虑已消耗的牌）
+// 返回 {types: 种类数, tiles: 张数}，张数含牌河/副露里已见的扣减
+function usefulTiles(hand, melds){
+  const base=shanten(fullCount(hand,melds), (melds||[]).length);
+  const total=hand.slice();
+  (melds||[]).forEach(m=>{total[m.card]+=(m.type==='gang'?4:3);});   // 杠是 4 张，别一律按 3 张算
+  // 统计所有已可见的牌（自己手牌 + 自己副露 + 全场牌河）
+  const seen=total.slice();
+  G.discards.forEach(d=>d.forEach(x=>{seen[x]++;}));
+  // 其他三家的副露也算可见
+  [1,2,3].forEach(q=>{(G.melds[q]||[]).forEach(m=>{seen[m.card]+=(m.type==='gang'?4:3);});});
+  const my=G.turn;
+  let types=0, tiles=0;
+  for(let c=0;c<27;c++){
+    if(seen[c]>=4)continue;                 // 这张已经绝了
+    hand[c]++;
+    const sh=shanten(fullCount(hand,melds),(melds||[]).length);
+    hand[c]--;
+    if(sh<base){types++;tiles+=(4-seen[c]);}
+  }
+  return {types:types, tiles:tiles};
+}
+
+// ===== 危险度：这张牌打出去的点炮风险（0=安全，8=最危险）=====
+// 🔴 旧版只数「全场见过几张」，完全没有筋 / 副露 / 中张的概念 —— 于是电脑到了尾声
+//    照样打中张生张、放炮明显偏多（用户反馈「电脑的水平还是有点低」，而它的**选牌效率**
+//    实测已接近最优，差的就在防守面）。这里按**逐家评估再取平均**重写：
+//    · 这一家打过这张 → 他的现物，不会要 → 0 风险；
+//    · 筋：这一家打过同花色 rank±3 的牌 → 本张打出去被他要的概率下降；
+//    · 中张（3~7）比幺九危险（越靠中间越容易被要）；
+//    · 这一家副露越多 → 越接近听牌 → 风险加码；
+//    · 别处已现的张（残张少）→ 略微安全。
+function dangerScore(card, self){
+  if(G.discards[self].indexOf(card)>=0)return 0;      // 自己打过：不会点自己的炮
+  const rank=card%9, base=card-rank;
+  let sum=0, cnt=0;
+  for(let p=0;p<4;p++){
+    if(p===self)continue;
+    cnt++;
+    const d=G.discards[p]||[];
+    if(d.indexOf(card)>=0)continue;                   // 这家的现物 → 他不会要 → 0 风险
+    let v=6;
+    if(rank>=2&&rank<=6)v+=2.5;                       // 中张：最容易被人要
+    else if(rank===0||rank===8)v-=2;                  // 幺九：相对安全
+    // 筋：这家打过同花色 rank±3 的牌
+    let suji=0;
+    if(rank-3>=0&&d.indexOf(base+rank-3)>=0)suji++;
+    if(rank+3<=8&&d.indexOf(base+rank+3)>=0)suji++;
+    v-=suji*2.5;
+    // 副露多 = 离听牌近 = 更危险
+    const mn=(G.melds[p]||[]).length;
+    if(mn>=3)v+=3.5; else if(mn>=2)v+=2;
+    // 别处已现的张（残张少）→ 略微安全
+    let seen=0;
+    for(let q=0;q<4;q++){
+      if(q===p)continue;
+      const dd=G.discards[q]||[];
+      for(let i=0;i<dd.length;i++)if(dd[i]===card)seen++;
+    }
+    v-=Math.min(3,seen)*0.8;
+    if(v>0)sum+=v;
+  }
+  return cnt?Math.max(0,Math.min(8,sum/cnt)):0;
+}
+
+// 危险度的**权重**：开局几乎不管危险、尾声重罚；有人副露多则整体加码。
+// （麻将 AI 的常识：危险值本身是"静态"的，真正决定要不要弃和的是**牌局进度**。）
+function dangerWeight(p){
+  const wallLeft=(G.wall&&G.wall.length)||40;
+  const prog=1-Math.min(1,Math.max(0,(wallLeft-10)/44));   // 0=开局 → 1=尾声
+  let threat=0;
+  for(let q=0;q<4;q++){
+    if(q===p)continue;
+    const n=(G.melds[q]||[]).length;
+    if(n>=3)threat+=0.35; else if(n>=2)threat+=0.18;
+  }
+  return 1+3.4*prog+threat;
+}
+
+// 番型倾向：手牌越接近高番牌型，加分越多（引导 AI 不轻易放弃大牌）
+function patternBonus(hand, melds, p){
+  // 「做大牌的」才给番型倾向加分；优先听牌的那 70% 直接返回 0 ——
+  // 出牌评分里向听数/进张本来就在前两位，去掉番型加分后它们就是纯效率优先（最快听牌）。
+  if(typeof G!=='undefined'&&G&&G.aiBig&&!G.aiBig[p])return 0;
+  const c=fullCount(hand,melds);
+  const total=c.reduce((a,b)=>a+b,0);
+  let bonus=0;
+  // 七对倾向：统计对子数（无副露时才可能）
+  if(!(melds&&melds.length)){
+    let pairs=0, singles=0;
+    for(let i=0;i<27;i++){
+      if(c[i]===2||c[i]===4)pairs++;
+      else if(c[i]===1||c[i]===3)singles++;
+    }
+    if(pairs>=5)bonus+=(pairs-4)*8;         // 已成型 5 对以上，值得继续做七对
+    if(pairs>=6)bonus+=18;
+  }
+  // 清一色倾向：统计主花色占比
+  const suit=[0,0,0];
+  for(let i=0;i<27;i++)suit[(i/9)|0]+=c[i];
+  const main=Math.max(suit[0],suit[1],suit[2]);
+  if(total>0){
+    const ratio=main/total;
+    if(ratio>=0.75)bonus+=12;
+    else if(ratio>=0.6)bonus+=5;
+  }
+  // 大对子倾向：刻子多
+  let triples=0;
+  for(let i=0;i<27;i++)if(c[i]>=3)triples++;
+  if(triples>=3)bonus+=triples*3;
+  // ⚠️ 权重试过 ×8：**更差** —— 追大牌把进张牺牲光（实测 34 人次只胡 3 把、平均番 1.7、大牌型 0%，
+  //    效率流 86 人次胡 23 把、平均番 2.4、大牌型 9%）。×2 是"温和偏好"：番型看得出来，又不至于拖垮牌型。
+  return bonus*2;
+}
+
+// 增强版出牌决策：接收「家号 p」，综合向听 / 进张 / 危险 / 番型 / 留鸡 打分
+// 性能关键：进张数（usefulTiles，约 1.5ms/次）只对「向听数已达最优」的候选计算，
+// 先用便宜的向听数筛一轮，避免对 14 个候选全部精算（否则 20ms+/手）。
+function aiDiscardSmart(p){
+  const hand=G.hands[p], melds=G.melds[p];
+  const meldN=(melds||[]).length;
+  // —— 第一轮：只看向听数，记录最优值 ——
+  const cands=[];
+  let bestSh=99;
+  for(let c=0;c<27;c++){
+    if(hand[c]===0)continue;
+    hand[c]--;
+    const sh=shanten(fullCount(hand,melds),meldN);
+    hand[c]++;
+    // 打出幺鸡/乌骨鸡会触发冲锋鸡责任，给一个虚拟惩罚（推后其优先级）
+    const chicken=(c===9||c===25)?1.5:0;
+    const shEff=sh+chicken;
+    cands.push({c:c,sh:sh,shEff:shEff});
+    if(shEff<bestSh)bestSh=shEff;
+  }
+  if(!cands.length)return aiDiscard(hand);   // 兜底
+  // —— 第二轮：只对最优向听档位的候选，精算进张/危险/番型 ——
+  const top=cands.filter(x=>x.shEff<=bestSh+1e-9);
+  let best=-1,bestScore=-1e9;
+  for(const o of top){
+    const c=o.c;
+    hand[c]--;
+    const ut=usefulTiles(hand,melds);           // 精算有效进张
+    const pb=patternBonus(hand,melds,p);
+    hand[c]++;
+    const danger=dangerScore(c,p);
+    // 自己离听牌越近越该冲（0.55），越远越该收（1.15）；再乘"牌局进度 + 对手副露"权重。
+    // 旧版是固定 *14 不随进度变化 → 开局太怂、尾声太莽，正好反了。
+    // 冲/收的强度分三档（麻将常识：**已经听牌就别为了安全拆听**）：
+    //   sh<=0（打完就听）→ 0.18；sh==1 → 0.5；≥2 → 1.15（该收就收）。
+    const push=(o.sh<=0)?0.18:((o.sh===1)?0.5:1.15);
+    let sc = -o.sh*1000 + ut.tiles*12 + ut.types*6 - danger*12*dangerWeight(p)*push + pb;
+    if(c===9||c===25) sc += 70;                 // 幺鸡/乌骨鸡不做第一个打出去的（送鸡给叫牌家）
+    if(sc>bestScore){bestScore=sc;best=c;}
+  }
+  if(best<0)best=aiDiscard(hand);              // 兜底
+  return best;
+}
+
+// 是否应该碰：碰之后向听数不变差，且不会破坏七对，才碰
+function shouldPeng(p, card){
+  const melds=G.melds[p]||[];
+  const hand=G.hands[p];
+  // ① 已经没有副露空间
+  if(melds.length>=4)return false;
+  // ② 手牌碰掉 2 张后必须还能留 ≥1 张可打
+  const handN=hand.reduce((a,b)=>a+b,0);
+  if(handN-2<1)return false;
+  // ③ 七对倾向：暗牌还没副露、且对子≥4 时，不碰（碰了就做不成七对）
+  if(melds.length===0){
+    let pairs=0;
+    for(let i=0;i<27;i++)if(hand[i]>=2)pairs++;
+    if(pairs>=4&&(G.aiBig?G.aiBig[p]:false))return false;   // 只有"做大牌风"才保七对
+  }
+  // ④ 向听数比较：碰之前 vs 碰之后（碰 = 手牌 -2 + 多一副面子 +3）
+  // 🔴 原来只写了 `h2[card]-=2`，**忘掉碰出来的那 3 张** → 等于"碰一下凭空少 3 张牌"，
+  //    算出来向听数永远变差 → 电脑几乎从不碰牌。实测 280 副手牌：旧口径只有 1% 通过、
+  //    正确口径 95%（样例：before=2 → 旧算出 3 → 正确算出 1）。
+  const before=shanten(fullCount(hand,melds),melds.length);
+  const h2=hand.slice(); h2[card]+=1;          // -2（打出手里两张）+3（碰出的那副）= 净 +1
+  const after=shanten(fullCount(h2,melds),melds.length+1);
+  // 碰之后向听数不能变大（变差就不碰）
+  return after<=before;
+}
+
+const G={hands:[emptyC(),emptyC(),emptyC(),emptyC()],melds:[[],[],[],[]],discards:[[],[],[],[]],wall:[],turn:0,dealer:0,phase:'idle',drawn:null,lastDiscard:null,lastDiscardBy:-1,pendingAction:null,chickenCard:null,
+  handNo:0,            // 已打完的局数（从本地记录读入），显示用「第 N 局」= handNo+1
+  scores:[0,0,0,0],   // 累计总分（跨局保留）
+  roundScore:[0,0,0,0], // 本局得分
+  discardPeak:[0,0,0,0],// 各家弃牌区的"历史最多牌数"：尺寸档位只升不降，防止碰/杠移走牌后整区尺寸回弹
+  picked:null,          // 玩家**预选**（点了一下、还没打出）的那张牌：再点它一次才真的打出
+  // 当前**所有**可行动作（胡/杠/碰/暗杠/补杠）——同时可选时要一起弹出来让玩家挑；
+  // pendingAction 仍保留 = actions[0]，给"有没有待决动作"这类判断用。
+  actions:[],
+  // 电脑的牌风：true = 这一局奔大牌（七对/清一色/大对子），false = 优先听牌（效率优先）。
+  // 每局开局按 30% / 70% 给三家电脑随机分派（用户要求：做大牌与小牌比例 30:70）。
+  aiBig:[false,false,false,false],
+  nextDealer:null,      // 上一局胜家：结算时暂存，**开局才真正换庄**（见 endHandBookkeeping）
+  revealAll:false,      // 完局亮牌开关（true=三家手牌翻正面）
+  result:null,          // 本局结果（winner / winTile），供亮牌高亮使用
+  // 贵阳捉鸡专属状态
+  chargeChicken:null,       // 冲锋鸡③：本局**全局第一张**被打出的幺鸡 {p,card,via,from}；p=当前持有者,
+                            //   via/from 有值 = 被碰/杠走过 → 结算时若碰走者叫牌则持有者已换成他（见 chickenSettle ④）
+  respChickens:[],          // 责任鸡④：**所有**被打出后被碰/杠走的鸡 [{from,by,card,how}]，打出者多付 1 分
+  bao:[false,false,false,false],  // 报听/天听：true = 已报听（不能换牌、不能碰杠、摸着牌就必打）
+  baoName:['','','',''],          // 记账用：他报的是"报听"还是"天听"（决定 17 还是 34 番）
+  openFollow:null,          // 开局跟：{card,hits,seen,done,ok} —— 庄家首张 + 三家第一张都跟打同一牌
+  gangFlower:false,          // 本次胡牌是否为杠上花
+  qiangGang:false,           // 本局是否为抢杠胡（补杠者包赔，4 倍）
+  qiangGangPending:-1,       // 玩家待决的抢杠：记录补杠者座位
+  hotCannon:false,           // 本张牌是否为「杠后补摸的第一张」（打出去点炮即热炮）
+  hotCannonGang:null,        // 热炮撤销用：记录那名玩家本局刚成的杠副露
+  fieldChicken:null,         // 特殊鸡牌（翻牌鸡恰为幺鸡/乌骨鸡则升金鸡）
+  winTile:null,              // 本次点炮胡的那张牌（结算时需补进手牌算番型）
+  tingFlag:false,            // 我上一次出牌后是否已听牌（「听牌」提示音只在刚叫牌那一次响）
+  firstDraw:[false,false,false,false] // 各家是否仍是「首次摸牌」（天胡/地胡判定）
+};
+const PLAYER=0,NAMES=['你','下家','对家','上家'];
+const log=m=>document.getElementById('log').innerHTML=m;
+/* ===================== 音效引擎 SFX =====================
+   为什么用「实时合成」而不是一堆 mp3 文件：
+     ① 本作是**单文件**游戏（一个 index.html 双击就能玩）。Chrome/Edge 在 file:// 下
+        禁止 fetch/XHR 读本地文件（跨源），"预加载一批音频再播放"这条路在本地直接走不通；
+        而 WebAudio 的合成音**零资源**：不附带任何文件、离线可用、体积极小、永不 404。
+     ② 每条音效都是一个"配方"（见 R 表），要改音色只改参数，不用重新找素材。
+     ③ 想换成真实录音也不用改逻辑：把文件放进 sfx/ 目录并填进 SFX.SAMPLES，
+        加载成功就自动改用样本、失败就静默回落到合成音（见 loadSamples）。
+
+   三条工程要点（不这么做在手机上会出问题）：
+     · **自动播放策略**：浏览器要求"先有用户手势"才允许出声。首次 pointerdown/
+       touchstart/keydown 自动解锁（unlock），牌桌上的任何点击也都是手势。
+     · **节流**：连点牌、连响的 key 用 THROTTLE 限流，避免同一声叠加成噪音。
+     · **切后台挂起**：visibilitychange 里 suspend/resume，省电（移动端很重要）。
+   所有对外调用都包了 try/catch：没有 WebAudio、被系统静音、上下文创建失败时
+   一律"静默空转"，**绝不影响牌局逻辑**。 */
+const SFX=(function(){
+  const KEY='gymj.sfx.v1';
+  const cfg={on:true,vol:0.75};
+  try{
+    const s=JSON.parse(localStorage.getItem(KEY)||'null');
+    if(s&&typeof s==='object'){
+      if(typeof s.on==='boolean')cfg.on=s.on;
+      if(typeof s.vol==='number'&&isFinite(s.vol))cfg.vol=Math.max(0,Math.min(1,s.vol));
+    }
+  }catch(e){}
+  const saveCfg=()=>{try{localStorage.setItem(KEY,JSON.stringify({on:cfg.on,vol:cfg.vol}));}catch(e){}};
+
+  const AC=(typeof window!=='undefined')?(window.AudioContext||window.webkitAudioContext||null):null;
+  let ac=null,master=null,noise=null;
+
+  // 懒创建：AudioContext 要等到真有需要时才建（一进页面就建会被浏览器判成打扰用户）
+  function ensure(){
+    if(ac||!AC)return ac;
+    try{
+      ac=new AC();
+      master=ac.createGain();
+      master.gain.value=cfg.on?cfg.vol:0;
+      master.connect(ac.destination);
+      // 0.4 秒白噪声缓冲，所有"撞击类"音效共用这一份（只生成一次，不再分配内存）
+      const n=Math.max(1,Math.floor(ac.sampleRate*0.4));
+      noise=ac.createBuffer(1,n,ac.sampleRate);
+      const d=noise.getChannelData(0);
+      for(let i=0;i<n;i++)d[i]=Math.random()*2-1;
+    }catch(e){ac=null;master=null;noise=null;}
+    return ac;
+  }
+  function unlock(){
+    try{
+      const c=ensure();if(!c)return false;
+      if(c.state==='suspended'&&typeof c.resume==='function'){
+        const r=c.resume();if(r&&typeof r.catch==='function')r.catch(()=>{});
+      }
+      return true;
+    }catch(e){return false;}
+  }
+
+  /* ---------- 两个发声原语：全部音效都由它们拼出来 ---------- */
+  // 撞击：白噪声 → 带通 → 4ms 起振 / 极快衰减。麻将的「嗒、啪」就是这种形状
+  //        （噪声脉冲 + 很短的尾巴）；过滤器的中心频率决定"木"还是"瓷"。
+  function hit(t,f,o){
+    if(!ac||!noise)return;
+    o=o||{};
+    const src=ac.createBufferSource();src.buffer=noise;src.loop=true;
+    const bp=ac.createBiquadFilter();
+    bp.type=o.type||'bandpass';
+    bp.frequency.value=f;
+    bp.Q.value=(o.q===undefined?7:o.q);
+    const g=ac.createGain();
+    const peak=(o.g===undefined?0.5:o.g), dur=(o.dur===undefined?0.09:o.dur);
+    g.gain.setValueAtTime(0.0001,t);                       // ⚠️ 指数包络不能从 0 开始
+    g.gain.exponentialRampToValueAtTime(peak,t+0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    src.connect(bp);bp.connect(g);g.connect(master);
+    src.start(t);src.stop(t+dur+0.04);
+  }
+  // 乐音：三角波（柔和、长时间听不刺耳），o.to 给滑音终点
+  function note(t,f,dur,o){
+    if(!ac)return;
+    o=o||{};
+    const osc=ac.createOscillator();
+    osc.type=o.type||'triangle';
+    osc.frequency.setValueAtTime(f,t);
+    if(o.to)osc.frequency.exponentialRampToValueAtTime(Math.max(20,o.to),t+dur);
+    const g=ac.createGain();
+    const peak=(o.g===undefined?0.22:o.g);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(peak,t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    osc.connect(g);g.connect(master);
+    osc.start(t);osc.stop(t+dur+0.04);
+  }
+
+  /* ---------- 音效配方表：t = 起始时刻（AudioContext 时钟，秒） ---------- */
+  const R={
+    // 轻点（选牌 / 按钮）：一颗木珠轻碰，两声错开 6ms 让"颗粒感"更清楚
+    tap:t=>{hit(t,1500,{dur:.05,q:9,g:.30});hit(t+.006,2600,{dur:.035,q:12,g:.14});},
+    // 非法操作（还没轮到你 / 有动作没选）：低闷一声「唔」，下行
+    deny:t=>{note(t,196,.20,{g:.20,type:'sine',to:150});},
+    // 出牌：牌拍在桌面上 —— 高频碎裂 + 低频冲击，是全套里最"脆"的一声
+    discard:t=>{hit(t,1800,{dur:.10,q:3.5,g:.62});hit(t+.004,420,{dur:.13,q:2,g:.34,type:'lowpass'});},
+    // 摸牌：牌从牌墙里滑出来（很轻的高频摩擦，不能盖过出牌）
+    draw:t=>{hit(t,3200,{dur:.075,q:1.2,g:.20,type:'highpass'});hit(t+.03,1500,{dur:.06,q:5,g:.14});},
+    // 碰：三声「嗒嗒嗒」= 三张牌码齐（音高逐张微升，听起来是"码上去"）
+    peng:t=>{[0,.055,.11].forEach((d,i)=>hit(t+d,1250+i*90,{dur:.075,q:7,g:.50}));},
+    // 明杠：四声、更矮更重（牌更多、动作更重）
+    gang:t=>{[0,.06,.12,.18].forEach((d,i)=>hit(t+d,950+i*70,{dur:.09,q:6,g:.52}));},
+    // 暗杠：闷响（牌扣着敲桌：低通 + 低音铺底）
+    angang:t=>{hit(t,620,{dur:.14,q:2.2,g:.55,type:'lowpass'});
+               hit(t+.09,760,{dur:.12,q:3,g:.40,type:'lowpass'});
+               note(t+.02,147,.28,{g:.18,type:'sine',to:110});},
+    // 补杠（爬坡豆）：中音双响，听感是"再接一张上去"
+    bugang:t=>{hit(t,1050,{dur:.09,q:5,g:.50});hit(t+.11,1400,{dur:.10,q:6,g:.48});},
+    // 听牌 / 叫牌：清脆一声金铃（三度上行，短）
+    ting:t=>{note(t,988,.16,{g:.22});note(t+.09,1319,.34,{g:.20,type:'sine'});},
+    // 轮到你了：柔和两音（不催人，每回合都会响，必须最轻）
+    prompt:t=>{note(t,784,.13,{g:.16});note(t+.11,1047,.22,{g:.15,type:'sine'});},
+    // 有可选动作（可以碰 / 可以杠）：三连上行叮
+    alert:t=>{[0,.1,.2].forEach((d,i)=>note(t+d,[880,1175,1568][i],.16,{g:.20,type:'sine'}));},
+    // 可胡！（含可抢杠胡）：五音上行琶音，比 alert 更亮更长 —— 这个必须能听出来
+    huReady:t=>{[0,.08,.16,.24,.34].forEach((d,i)=>note(t+d,[784,988,1175,1568,2093][i],i===4?.5:.2,{g:.22,type:'sine'}));},
+    // 点炮胡：温和的四音上行
+    hu:t=>{[0,.1,.2,.32].forEach((d,i)=>note(t+d,[523,659,784,1047][i],i===3?.55:.24,{g:.24,type:'triangle'}));},
+    // 自摸胡：六音上行 + 长尾（自己的牌，更得意）
+    zimo:t=>{[0,.085,.17,.255,.34,.44].forEach((d,i)=>note(t+d,[523,659,784,988,1175,1568][i],i===5?.8:.22,{g:.26,type:'triangle'}));
+             note(t+.44,784,.9,{g:.12,type:'sine'});},
+    // 大牌型（≥17 番：清一色 / 龙七对 / 大对子…）：自摸的加强版 + 低音铺底，明显更"大"
+    huBig:t=>{[0,.08,.16,.24,.32,.40,.52].forEach((d,i)=>note(t+d,[392,523,659,784,988,1175,1568][i],i===6?1.1:.22,{g:.27,type:'triangle'}));
+              note(t,196,1.2,{g:.16,type:'sine'});note(t+.52,1047,1.1,{g:.13,type:'sine'});},
+    // 抢杠胡：两声急促上冲（方波让"抢"的感觉更冲）
+    qianggang:t=>{hit(t,1500,{dur:.08,q:6,g:.40});
+                  note(t,880,.12,{g:.24,type:'square'});
+                  note(t+.1,1760,.3,{g:.24,type:'triangle'});},
+    // 热炮（杠上炮）/ 全烧：上行后急转直下 —— "烧掉了"
+    hotcannon:t=>{note(t,1200,.18,{g:.24,type:'triangle'});
+                  note(t+.16,900,.22,{g:.22,type:'triangle',to:420});
+                  note(t+.36,300,.5,{g:.20,type:'sawtooth',to:120});},
+    // 摇色子：骰子在碗里滚（连响）+ 一点滚动感的滑音
+    dice:t=>{for(let i=0;i<7;i++)hit(t+i*.075,1600+((i*137)%700),{dur:.06,q:4,g:.30});
+             note(t,300,.4,{g:.10,type:'sine',to:500});},
+    // 色子落定：清脆一响
+    diceStop:t=>{hit(t,1350,{dur:.12,q:5,g:.52});hit(t+.05,2300,{dur:.07,q:8,g:.26});},
+    // 发牌：一次发 53 张，用一串快速摩擦声表示"唰"
+    deal:t=>{for(let i=0;i<9;i++)hit(t+i*.028,2100+((i*211)%900),{dur:.045,q:5,g:.22});
+             hit(t,420,{dur:.18,q:1.6,g:.24,type:'lowpass'});},
+    // 结算窗弹出：轻快两音（排在胡牌长音的尾巴上，见 doHu/settle/showResult 的时序）
+    settle:t=>{note(t,659,.14,{g:.18});note(t+.1,988,.34,{g:.17,type:'sine'});},
+    // 捉鸡 / 翻鸡牌：两下"咯咯"感 + 高音叮
+    chicken:t=>{hit(t,1900,{dur:.05,q:8,g:.30});note(t+.06,1319,.1,{g:.20});
+                hit(t+.16,1900,{dur:.05,q:8,g:.26});note(t+.22,1760,.36,{g:.20,type:'sine'});},
+    // 荒庄：下行两音，泄气但不刺耳
+    liuju:t=>{note(t,523,.3,{g:.20,type:'sine'});note(t+.2,392,.5,{g:.18,type:'sine',to:294});}
+  };
+  // 限流（毫秒）：只在"同一 key 高频重复一定没意义"的地方设
+  const THROTTLE={tap:55,draw:20,discard:0,deal:0,dice:0};
+  const lastAt={};
+
+  /* 播放一个音效。opt.delay = 延后多少秒起播（用于把多个音排成"先后"而不是齐响） */
+  function play(name,opt){
+    try{
+      if(!cfg.on)return;
+      const f=R[name];if(!f)return;
+      const c=ensure();if(!c)return;
+      const th=THROTTLE[name]||0;
+      if(th){
+        const now=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+        if(lastAt[name]&&now-lastAt[name]<th)return;
+        lastAt[name]=now;
+      }
+      // 还没解锁就顺手解一次；解不开也把音排上——上下文恢复后 currentTime 会跟着走，
+      // 排好的音会在恢复那一刻响（第一次点击不会白点）
+      if(c.state==='suspended')unlock();
+      const t=c.currentTime+((opt&&opt.delay)||0)+0.005;
+      f(t,opt||{});
+    }catch(e){}
+  }
+  function applyVol(){
+    try{if(master)master.gain.value=cfg.on?cfg.vol:0;}catch(e){}
+  }
+  function setOn(on){cfg.on=!!on;saveCfg();applyVol();if(cfg.on)unlock();return cfg.on;}
+  function toggle(){return setOn(!cfg.on);}
+
+  /* ---------- 可选：换成真实录音（不用改任何调用处）----------
+     SFX.SAMPLES={discard:'sfx/discard.mp3', ...}
+     探测成功则该 key 改播样本，失败保留合成音（file:// 下必然失败 → 全用合成，符合预期）。
+     用 <audio> 而不是 fetch：file:// 下 fetch 被跨源拦截，<audio src> 才读得到同目录文件。 */
+  const SAMPLES={};
+  const samples={};
+  function loadSamples(){
+    try{
+      Object.keys(SAMPLES).forEach(k=>{
+        const a=new Audio();
+        a.preload='auto';a.src=SAMPLES[k];
+        a.addEventListener('canplaythrough',()=>{samples[k]=a;},{once:true});
+        a.addEventListener('error',()=>{delete samples[k];},{once:true});
+      });
+    }catch(e){}
+  }
+
+  /* 首次手势解锁：document 级的 pointerdown/touchstart/keydown 各挂一次，
+     所有监听都用 {passive:true}（不阻塞滚动），并整体 try/catch ——
+     测试沙箱/老内核的桩 DOM 没有 addEventListener 时不会在加载期抛错。 */
+  try{
+    if(typeof document!=='undefined'&&typeof document.addEventListener==='function'){
+      ['pointerdown','touchstart','keydown'].forEach(ev=>{
+        try{document.addEventListener(ev,unlock,{passive:true});}catch(e){document.addEventListener(ev,unlock);}
+      });
+      document.addEventListener('visibilitychange',()=>{
+        try{
+          if(!ac)return;
+          if(document.hidden){if(typeof ac.suspend==='function')ac.suspend();}
+          else if(cfg.on)unlock();
+        }catch(e){}
+      });
+    }
+  }catch(e){}
+  loadSamples();
+
+  return {
+    play:play,
+    unlock:unlock,
+    on:function(){return cfg.on;},          // 当前是否出声
+    isOn:function(){return cfg.on;},
+    setOn:setOn,
+    toggle:toggle,
+    available:!!AC,                          // 浏览器不支持 WebAudio → 调用方把开关藏掉
+    names:function(){return Object.keys(R);},
+    samples:SAMPLES,
+    _ctx:function(){return ac;}
+  };
+})();
+
+/* ===================== 本地存档：名字 + 积分记录 =====================
+   存在浏览器 localStorage（键 gymj.v1）里。**名字就是记录的键**：
+   换个名字 = 开一份新记录；旧名字的成绩留着，改回来还能看到。
+   ✅ file:// 直接打开也能用 —— 实测 Edge/Chrome 的 file:// 来源允许 localStorage
+      （cookie 在 file:// 下写不进去，所以没用 cookie）。
+   ⚠️ 万一被浏览器禁掉（隐私模式 / 老内核），退化成"只在本次打开期间有效"，
+      并在取名框里明确告知，不静默丢数据。 */
+const STORE_KEY='gymj.v1';
+const Store={
+  ok:(function(){try{localStorage.setItem('__gymj_t','1');localStorage.removeItem('__gymj_t');return true;}catch(e){return false;}})(),
+  data:{name:'',records:{}},
+  load(){
+    if(!this.ok)return;
+    try{const raw=localStorage.getItem(STORE_KEY);if(raw){const d=JSON.parse(raw);if(d&&typeof d==='object')this.data=d;}}catch(e){}
+    if(!this.data||typeof this.data!=='object')this.data={name:'',records:{}};
+    if(typeof this.data.name!=='string')this.data.name='';
+    if(!this.data.records||typeof this.data.records!=='object')this.data.records={};
+  },
+  save(){if(!this.ok)return;try{localStorage.setItem(STORE_KEY,JSON.stringify(this.data));}catch(e){}},
+  // 取某个名字的记录；没有就按默认值新建（顺手补全缺字段，兼容旧数据）
+  rec(name){
+    const k=name||'玩家';
+    let r=this.data.records[k];          // 记录对象（没有就新建，见下）
+    const isNewRec=!(this.data.records[k]&&typeof this.data.records[k]==='object');
+    if(!r||typeof r!=='object')r={};
+    if(!Array.isArray(r.scores)||r.scores.length!==4||r.scores.some(v=>typeof v!=='number'))r.scores=[0,0,0,0];
+    if(typeof r.hands!=='number'||r.hands<0)r.hands=0;
+    // 首局由**系统随机选庄**（贵阳捉鸡规则）；之后由胡牌者接庄（结算时写回这里）。
+    // ⚠️ 只有「记录是新建的」那一次才随机，否则每次读档都会把庄位打乱。
+    if(isNewRec)r.dealer=Math.floor(Math.random()*4);
+    else if(typeof r.dealer!=='number'||r.dealer<0||r.dealer>3)r.dealer=0;
+    this.data.records[k]=r;
+    return r;
+  },
+  clearRec(name){delete this.data.records[name||'玩家'];this.save();}
+};
+
+/* ===================== 取名 ===================== */
+// 自动名字 = 两个字的词 + 两个字的尾巴，一定凑够四个字
+const NAME_A=['清风','明月','青竹','山间','雨后','白鹤','松间','云中','江畔','闲云','金雀','玉竹','墨玉','晨光','夜航','小满','长乐','无忧','自在','白云','碧海','春风','秋月','冬雪','夏雨','老酒','半盏','三两','七里','九歌'];
+const NAME_B=['雀神','牌仙','麻客','牌手','雀圣','将友','麻友','胡神','雀客','牌痴','摸王','听牌','自摸','东风','发财','长胜','顺手','拈花'];
+function randomName(){return NAME_A[(Math.random()*NAME_A.length)|0]+NAME_B[(Math.random()*NAME_B.length)|0];}
+function updateMyName(){NAMES[0]=(Store.data.name||'你');}
+let _nameFirst=false;
+function openNameDlg(first){
+  const d=document.getElementById('nameDlg');
+  if(!d){if(first)startHand();return;}
+  _nameFirst=!!first;
+  const cur=Store.data.name;
+  document.getElementById('nTitle').textContent=first?'先给自己取个名字':'换个名字';
+  document.getElementById('nTip').innerHTML=first
+    ?'积分按这个名字记在<b>本机浏览器</b>里，下次打开接着算。以后想改名，点牌桌中间你的名字。'
+    :'换名字会另开一份<b>新的积分记录</b>（从 0 开始）；旧名字的成绩还留着，改回来就能看到。';
+  const inp=document.getElementById('nameInput');
+  inp.value=(first||!cur)?randomName():cur;
+  document.getElementById('nameClear').style.display=(!first&&cur&&Store.data.records[cur])?'':'none';
+  const w=document.getElementById('nWarn');
+  if(!Store.ok){w.textContent='⚠️ 本机浏览器不让网页保存数据（可能是隐私模式），这个名字只在本次打开期间有效。';w.classList.add('on');}
+  else{w.textContent='';w.classList.remove('on');}
+  d.classList.add('on');
+  // 取名层期间同样藏掉右上角的全屏按钮：它的层级比浮层高，会浮在遮罩上、
+  // 并且正好压在右家名字标签的位置（和结算窗/色子层是同一个问题）
+  if(document.body&&document.body.classList)document.body.classList.add('isName');
+  try{inp.focus();inp.select();}catch(e){}
+}
+// 改名时点遮罩可以取消（首次取名不给取消 —— 必须先有个名字才能记分）
+if(typeof document!=='undefined'&&document.addEventListener)
+  document.addEventListener('click',e=>{
+    const d=document.getElementById('nameDlg');
+    if(!d||!d.classList||!d.classList.contains('on')||_nameFirst)return;
+    if(e.target===d)closeNameDlg();
+  });
+function closeNameDlg(){
+  const d=document.getElementById('nameDlg');if(d)d.classList.remove('on');
+  if(document.body&&document.body.classList)document.body.classList.remove('isName');
+}
+function confirmName(){
+  SFX.play('tap');
+  const inp=document.getElementById('nameInput');
+  let v=((inp&&inp.value)||'').replace(/\s+/g,'').slice(0,5);
+  if(!v)v=randomName();                      // 没输就用自动生成的四个字
+  const wasFirst=_nameFirst;
+  applyName(v);
+  if(wasFirst)startHand();                   // 首次取名 → 直接进第一局（摇色子）
+}
+// 应用一个名字：分数/庄位/局数都从这个名字的记录里取
+function applyName(name){
+  Store.data.name=name;
+  const r=Store.rec(name);
+  G.scores=r.scores.slice();
+  G.dealer=r.dealer;
+  G.nextDealer=null;              // 读档/换名字后清掉暂存的胜家：避免沿用上一局的胜家换庄
+  G.handNo=r.hands||0;
+  updateMyName();
+  Store.save();
+  closeNameDlg();
+  try{render();}catch(e){}
+}
+function clearRecAndKeep(){
+  const n=Store.data.name;
+  if(n&&Store.data.records[n]){
+    Store.clearRec(n);
+    G.scores=[0,0,0,0];G.roundScore=[0,0,0,0];
+    const r=Store.rec(n);                  // 立刻重建一份空记录
+    G.dealer=r.dealer;G.nextDealer=null;G.handNo=0;
+    Store.save();
+    try{render();}catch(e){}
+  }
+  closeNameDlg();
+}
+
+/* ===================== 掷色子：定从哪开牌 =====================
+   两颗色子（1~6）。点数之和 S：从庄家起按逆时针（你→下家→对家→上家）数 S 家，
+   数到的那一家的牌墙开牌；再从该面墙的**右端**留「两颗色子里较小的点数」墩，
+   从下一墩开始取牌（1 墩 = 2 张）。牌墙按"四面墙、每面 27 张"摆。 */
+function rollDice(){
+  const d1=1+((Math.random()*6)|0), d2=1+((Math.random()*6)|0);
+  const sum=d1+d2;
+  // 数到的那一家：从**庄家自己**开始数、庄家算第 1 家，逆时针数到 sum（0=你 1=下家 2=对家 3=上家）。
+  // ⚠️ 是 sum-1，不是 sum：庄家是第 1 家不是第 0 家（原实现写错，整体差 1 家）。
+  const taker=(G.dealer+sum-1+4)%4;
+  const skip=Math.min(d1,d2);            // 右端留下的墩数
+  const start=(taker*27+(26-skip*2))%108;
+  return {d1,d2,sum,taker,skip,start};
+}
+// 按色子定的位置取牌：3 轮 × 每人 4 张，从庄家起逆时针；再每家 1 张。
+// 庄家第 14 张由随后的 drawTile(庄家) 摸走 → 共发 53 张，余 55 张。
+function dealByDice(info){
+  const ordered=[];
+  for(let i=0;i<108;i++)ordered.push(G.wall[(info.start+i)%108]);
+  G.wall=ordered.reverse();              // 反转后 pop() 就按取牌顺序出牌
+  for(let r=0;r<3;r++)for(let k=0;k<4;k++){
+    const p=(G.dealer+k)%4;
+    for(let j=0;j<4;j++)G.hands[p][G.wall.pop()]++;
+  }
+  for(let k=0;k<4;k++){const p=(G.dealer+k)%4;G.hands[p][G.wall.pop()]++;}
+  SFX.play('deal');   // 发牌：一次 53 张"唰"过去
+}
+// 色子面：3×3 点位；中式色子 1 点和 4 点是红的
+const DIE_PIPS={1:[4],2:[0,8],3:[0,4,8],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
+function dieFace(n){
+  const red=(n===1||n===4);
+  const pips=(DIE_PIPS[n]||[4]).map(i=>{
+    const cx=12+(i%3)*18, cy=12+((i/3)|0)*18;
+    return `<circle cx="${cx}" cy="${cy}" r="5.4" fill="${red?'#c0392b':'#0b3d2e'}"/>`;
+  }).join('');
+  return `<svg viewBox="0 0 60 60" aria-hidden="true"><rect x="2" y="2" width="56" height="56" rx="13" fill="#fff" stroke="#0b3d2e" stroke-width="3"/>${pips}</svg>`;
+}
+function setDieFace(id,n){const el=document.getElementById(id);if(el)el.innerHTML=dieFace(n);}
+let _diceTimers=[];
+function diceClear(){_diceTimers.forEach(t=>{clearTimeout(t);clearInterval(t);});_diceTimers=[];}
+const whoName=p=>(p===PLAYER?NAMES[0]:NAMES[p]);
+function runDiceUI(info,onDone){
+  const d=document.getElementById('dice');
+  if(!d){onDone();return;}
+  diceClear();
+  let settled=false,done=false;
+  const a=document.getElementById('dieA'),b=document.getElementById('dieB');
+  document.getElementById('dHand').textContent='第 '+(G.handNo+1)+' 局';
+  document.getElementById('dDealer').textContent='庄家：'+whoName(G.dealer);
+  document.getElementById('dSum').textContent='摇色子…';
+  document.getElementById('dInfo').innerHTML='';
+  document.getElementById('dTip').textContent='点任意处开始摸牌';
+  setDieFace('dieA',1+((Math.random()*6)|0));setDieFace('dieB',1+((Math.random()*6)|0));
+  if(a)a.classList.add('rolling');if(b)b.classList.add('rolling');
+  d.classList.add('on');
+  SFX.play('dice');   // 骰子在碗里滚
+  const spin=setInterval(()=>{setDieFace('dieA',1+((Math.random()*6)|0));setDieFace('dieB',1+((Math.random()*6)|0));},75);
+  _diceTimers.push(spin);
+  const finish=()=>{
+    if(done)return;done=true;
+    diceClear();d.classList.remove('on');
+    if(a)a.classList.remove('rolling');if(b)b.classList.remove('rolling');
+    onDone();
+  };
+  const settle=()=>{
+    if(settled)return;settled=true;
+    clearInterval(spin);
+    setDieFace('dieA',info.d1);setDieFace('dieB',info.d2);
+    SFX.play('diceStop');   // 色子落定：清脆一响
+    if(a)a.classList.remove('rolling');if(b)b.classList.remove('rolling');
+    document.getElementById('dSum').textContent=info.d1+' + '+info.d2+' = '+info.sum+' 点';
+    document.getElementById('dInfo').innerHTML=
+      `从庄家起数 <b>${info.sum}</b> 家 → <b>${whoName(info.taker)}</b>的牌墙<br>`+
+      `右端留 <b>${info.skip}</b> 墩 → 从第 <b>${info.skip+1}</b> 墩开始取牌<br>`+
+      `庄家 <b>${whoName(G.dealer)}</b> 先拿先出牌`;
+    _diceTimers.push(setTimeout(finish,1000));   // 不点也会自己往下走，不会卡流程
+  };
+  _diceTimers.push(setTimeout(settle,620));      // 先摇 0.62 秒（太长会拖住每一局）
+  d.onclick=()=>{settled?finish():settle();};     // 第一下跳到结果，第二下开始摸牌
+}
+
+// 清空"一局"的状态（累计分 G.scores / 庄位保留），并把桌面一起清干净。
+// 摇色子阶段看到的就是这张"已洗好、还没摸牌"的空桌。
+function resetHand(){
+  const wall=[];for(let i=0;i<27;i++)for(let k=0;k<4;k++)wall.push(i);
+  G.wall=shuffle(wall);G.hands=[emptyC(),emptyC(),emptyC(),emptyC()];
+  G.melds=[[],[],[],[]];G.discards=[[],[],[],[]];
+  // 弃牌区尺寸档位的"历史峰值"（只升不降，见 render 里的档位判定）
+  G.discardPeak=[0,0,0,0];
+  G.drawn=null;G.lastDiscard=null;G.lastDiscardBy=-1;G.lastDiscardAt=0;G.picked=null;G.pendingAction=null;G.actions=[];G.chickenCard=null;
+  G.roundScore=[0,0,0,0]; // 本局清零，累计分 G.scores 保留
+  G.chargeChicken=null;G.respChickens=[];G.gangFlower=false;G.fieldChicken=null;G.winTile=null;
+  G.bao=[false,false,false,false];G.baoName=['','','',''];G.openFollow=null;
+  G.tingFlag=false;                  // 新的一局：听牌提示重新计数
+  G.qiangGang=false;G.qiangGangPending=-1;G.hotCannon=false;G.hotCannonGang=null;
+  G.revealAll=false;G.result=null;
+  G.turn=G.dealer;
+  // 开局标记：用于天胡（庄家首次摸牌自摸）/ 地胡（闲家首次摸牌自摸）判定
+  for(let p=0;p<4;p++)G.firstDraw[p]=true;
+  hideTip();
+  const r=document.getElementById('result');
+  if(r){r.style.display='none';if(r.classList)r.classList.remove('peekMode');}
+  if(document.body&&document.body.classList)document.body.classList.remove('isResult');
+  syncReopenBtn();
+}
+// 开一局：庄家摇色子定"从哪开牌" → 按这个位置发牌 → 庄家先拿先出牌。
+// 庄家由上一局胜家接任（见 endHandBookkeeping）；第一局默认你坐庄，连庄则你继续。
+function startHand(){
+  // 电脑牌风：每局重新掷一次 —— 约 30% 做"大牌型"（七对/清一色/大对子），其余 70% 优先听牌。
+  // 玩家自己那一位固定 false：出牌建议走"效率优先"，不然建议会变得难以预料。
+  G.aiBig=[0,1,2,3].map(p=>p!==PLAYER&&Math.random()<0.3);
+  // 上一局结算时暂存的"胜家坐庄"**在开局这一刻才生效**：这样结算界面上的庄标记
+  // 始终对应本局（详见 endHandBookkeeping 的注释）。荒庄（nextDealer 没设）则连庄。
+  if(typeof G.nextDealer==='number'&&G.nextDealer>=0&&G.nextDealer<4)G.dealer=G.nextDealer;
+  G.nextDealer=null;
+  diceClear();
+  resetHand();
+  G.phase='dice';                  // 色子阶段：不吃点击、也不排 AI 定时器
+  // 🔴 必须在这里再同步一次按钮：resetHand() 里那次调用时 G.phase 还是上一局的 'over'，
+  //    于是「本局详情 / 再来一局」又被显示出来，之后没人收 —— 表现就是
+  //    "点了再来一局、新局开了，桌面上还挂着那两个按钮"（用户实测反馈）。
+  syncReopenBtn();
+  if(document.body&&document.body.classList)document.body.classList.add('isDice');
+  render();
+  log(whoName(G.dealer)+'坐庄，摇色子…');
+  const info=rollDice();
+  runDiceUI(info,()=>{
+    if(document.body&&document.body.classList)document.body.classList.remove('isDice');
+    dealByDice(info);
+    G.turn=G.dealer;
+    G.phase='discard';
+    render();
+    drawTile(G.dealer);            // 庄家先拿先出牌
+  });
+}
+// 一局结束后的记账：胜家坐庄 + 写本地记录（荒庄则连庄）
+function endHandBookkeeping(winner){
+  // ⚠️ **不要在这里就把 G.dealer 改成胜家**：结算窗和积分板上还显示着**本局**的结果，
+  //    庄标记一改就变成"下一局的庄"，看起来就是"庄和本局数据对不上"（用户反馈）。
+  //    改成先暂存到 G.nextDealer，等下一局开局（startHand）再真正换庄 ——
+  //    这样结算界面的「庄」永远对应本局，色子层的「第 N 局 / 庄家」也始终自洽。
+  if(winner>=0&&winner<4)G.nextDealer=winner;
+  const r=Store.rec(Store.data.name);
+  r.hands=(r.hands||0)+1;
+  r.dealer=(typeof G.nextDealer==='number')?G.nextDealer:G.dealer;   // 存档里记的是"下一局的庄"
+  r.scores=G.scores.slice();
+  r.updated=Date.now();
+  Store.save();
+  G.handNo=r.hands;
+}
+function newGame(){startHand();}   // 结算窗「再来一局」等旧调用点
+function drawTile(p){
+  if(G.wall.length===0){endGame();return;}
+  const t=G.wall.pop();G.hands[p][t]++;
+  SFX.play('draw');   // 摸牌：四家都响（很轻，只提示"牌墙又少一张"）
+  // 杠上花：杠完之后补摸的这一张牌若成胡，额外 +1 番
+  // 同一个标记也用于「热炮」判定：这一张若打出去点炮，即为杠上炮
+  if(p===PLAYER){
+    G.drawn=t;G.phase='discard';render();
+    // 报听：不能换牌 —— 摸到什么都必须打掉（只有能自摸时才停下来让玩家点「胡」）。
+    // 因为碰/杠已被禁（见 canMelded），手牌形状始终不变 → 听牌型不会被换掉。
+    if(G.bao[PLAYER]){
+      if(canHu(G.hands[PLAYER],G.melds[PLAYER],{zimo:true})){
+        log(`${G.baoName[PLAYER]}中：摸到 ${cname(t)}，可以自摸胡！`);
+        SFX.play('huReady');render();return;
+      }
+      log(`${G.baoName[PLAYER]}中：摸到 ${cname(t)}，按规则必须打出`);
+      render();setTimeout(()=>discard(PLAYER,t),260);
+      return;
+    }
+    // 摸到第4张（暗杠）或补杠牌时，自动弹出杠按钮，无需玩家自己发现
+    if(autoGangHint()){SFX.play('alert');return;}   // 可自摸/可暗杠/可补杠 → 三连叮（比"轮到你"更该被听见）
+    const sg=suggestCard(PLAYER);
+    log('轮到你了'+(sg!==null?' · 建议打 '+cname(sg):'，请出牌'));
+    SFX.play('prompt');   // 轮到你了：最轻的两音（每回合都响，不能吵）
+  }
+  else{render();setTimeout(()=>aiTurn(p),650);}
+}
+// 出牌后检查各家是否有「碰 / 明杠」的机会。
+// 关键修复：杠的判定必须在碰之前，且碰、杠都要检查（原来杠被碰挡掉、碰后不再提示自身回合的杠）
+function bestClaim(p,card){
+  if(G.hands[p][card]>=3)return 'gang';
+  if(G.hands[p][card]>=2)return 'peng';
+  return null;
+}
+function aiTurn(p){
+  if(G.phase==='over')return;
+  // 自摸不加限制（豆豆通行证只管点炮），但天胡/地胡需在首次摸牌时判定
+  if(canHu(G.hands[p],G.melds[p],{zimo:true})){doHu(p,-1,true);return;}
+  // ---- 该杠就杠 ----
+  // 🔴 电脑原来**完全不会暗杠/补杠**（doAnGang/doBuGang 只有玩家按钮会调），
+  //    只能等别人打出第 4 张时明杠 —— 所以几乎看不到电脑杠牌（用户反馈）。
+  if(aiWantGang(p))return;              // 杠完会由 doXxxGang 自己安排补摸
+  discard(p,aiDiscardSmart(p));
+}
+/* 电脑自己回合的杠：先看补杠（爬坡豆，三家各 3 番），再看暗杠（闷豆，三家各 2 番）。
+   两个原则：
+   ① **不能把牌型搞坏**：暗杠会让手牌少 1 张，用"碰之后"的向听数不比原来差来把关
+      （⚠️ 算"杠之后"要记得把杠出来那副面子算进去，别只减手牌 —— 见 shouldPeng 的教训）；
+   ② **七对路线不杠**（四张算两对，杠了就散了）；牌墙只剩最后几张也不补杠 ——
+      荒庄本来就不计豆（规则如此），还白送对手一个抢杠的机会。 */
+function aiWantGang(p){
+  const hand=G.hands[p], melds=G.melds[p]||[];
+  if(melds.length>=4)return false;                       // 没副露位置了
+  if(melds.length===0){
+    let pairs=0;for(let i=0;i<27;i++)if(hand[i]>=2)pairs++;
+    if(pairs>=5&&(G.aiBig?G.aiBig[p]:false))return false;    // 只有"做大牌风"才保七对
+  }
+  // ① 补杠：已碰过某张、又摸到第 4 张（只消耗 1 张手牌，最划算）
+  if(G.wall.length>4){
+    for(const m of melds){
+      if(m.type==='peng'&&hand[m.card]>=1&&canMelded(p,'bugang')){doBuGang(p,m.card);return true;}
+    }
+  }
+  // ② 暗杠：手里正好 4 张
+  const before=shanten(fullCount(hand,melds),melds.length);
+  for(let c=0;c<27;c++){
+    if(hand[c]>=4&&canMelded(p,'angang')){
+      const h2=hand.slice();h2[c]-=1;                     // -4（手里 4 张）+3（多一副面子）= 净 -1
+      const after=shanten(fullCount(h2,melds),melds.length+1);
+      if(after<=before){doAnGang(p,c);return true;}
+    }
+  }
+  return false;
+}
+function discard(p,card){
+  G.hands[p][card]--;G.discards[p].push(card);
+  SFX.play('discard');   // 出牌：牌拍在桌面上的那一声（四家出牌都响 —— 真人坐一桌也听得见）
+  // 冲锋鸡③：本局**全局第一张**被打出的幺鸡（一局只有这一只，谁先打谁持有）。
+  // 持有者默认 = 打出者；若这张牌被**叫牌家**碰/杠走 → 责任转移（在碰/杠处改 p，结算时再验他是否叫牌）。
+  if(G.chargeChicken===null&&isChargeTile(card))G.chargeChicken={p:p,card:card};
+  // 热炮（杠上炮）标记：本张牌若是「杠后补摸的第一张」打出的，点炮即算热炮。
+  // gangFlower 在 drawTile 前后由杠流程置位，这里消费掉它并转成热炮标记。
+  G.hotCannon=!!G.gangFlower;
+  G.gangFlower=false;
+  G.lastDiscard=card;G.lastDiscardBy=p;
+  G.picked=null;                     // 打出去了，预选态清掉
+  G.lastDiscardAt=Date.now();        // 供 render 判定"是否刚打出"（黄框跳动窗口）
+  // 开局跟（表外补充 4 点）：庄家本局**第一张**打出的牌，其余三家各自的**第一张**弃牌都跟打同一张。
+  // 用 G.firstDraw[p] 判定"这是他的第一张弃牌"——该标记只在出牌时置 false，位置就在下面几行。
+  if(!G.openFollow)G.openFollow={card:null,hits:0,seen:0,done:false,ok:false};
+  {
+    const of=G.openFollow;
+    if(!of.done&&G.firstDraw[p]){
+      of.seen++;
+      if(p===G.dealer)of.card=card;
+      else if(of.card!==null&&card===of.card)of.hits++;
+      if(of.seen>=4){of.done=true;of.ok=(of.hits===3);}
+    }
+  }
+  G.firstDraw[p]=false;
+  if(p===PLAYER)G.drawn=null;
+  hideTip();          // 打出去了，手牌上方的"建议打 X"提示跟着收掉
+  render();checkClaims(p,card);
+  // 听牌提示：玩家自己打出这张之后成听（上一张还没听）→ 一声金铃 + 日志高亮。
+  // G.tingFlag 只在"刚刚叫牌"那一次翻转，所以不会每次出牌都响；被碰掉牌型后再听会再响一次。
+  if(p===PLAYER){
+    const _ting=isTing(PLAYER);
+    if(_ting&&!G.tingFlag){
+      SFX.play('ting');
+      showTip('你已经听牌了（叫牌）· 黄庄时未听的人要赔你番值',2600);
+    }
+    G.tingFlag=_ting;
+  }
+}
+// 出牌后检查各家能否「胡 / 碰 / 明杠」。
+// 关键修复：先判杠再判碰（原来先判碰，导致手里已有3张也弹「碰」）；
+// 每种动作都优先看玩家，玩家有选择时立即中止 AI 流程等玩家决定。
+// 副露上限与「手牌不打空」的联合约束。
+// 关键：不同的副露方式对手牌/实物的消耗并不一样——
+//   碰：  手牌 -2，副露实物 +3（多出的 1 张来自别人打出的牌）
+//   明杠：手牌 -3，副露实物 +4（同样多 1 张来自别人）
+//   暗杠：手牌 -4，副露实物 +4
+//   补杠：手牌 -1，副露实物 +1（把身上的 1 张补到已碰的那副上）
+// 因此必须直接模拟「动作之后」的牌数，而不是拿一个 consume 去减，
+// 否则会出现 手1+副14=15 这种非法牌型。
+// 约束有两条：
+//   ① 副露最多 4 副，且总实物张数 ≤ 14（4 副面子 + 1 对将 = 14 张）
+//   ② 副露后手牌必须仍能留下 ≥1 张可打的牌
+function canMelded(p,type){
+  // 报听：手牌已经固定（"不能换牌"），所以碰、杠一律不给做（规则明说"也不能杠牌"）。
+  // 放在最前面：这样 UI 按钮、AI 判定、结算前的合法性检查全都会跟着关掉。
+  if(G.bao&&G.bao[p])return false;
+  if(G.melds[p].length>=4)return false;                 // 已有 4 副，不能再副露
+  const hand=G.hands[p].reduce((a,b)=>a+b,0);           // 当前手牌张数
+  const phys=G.melds[p].reduce((a,m)=>a+(m.type==='gang'?4:3),0); // 当前副露实物张数
+  let dh=0,dp=0;                                        // 手牌变化、副露实物变化
+  if(type==='peng'){dh=-2;dp=3;}                        // 碰
+  else if(type==='gang'){dh=-3;dp=4;}                   // 明杠
+  else if(type==='angang'){dh=-4;dp=4;}                 // 暗杠
+  else if(type==='bugang'){dh=-1;dp=1;}                 // 补杠
+  const nh=hand+dh, np=phys+dp;
+  if(nh<1)return false;                                 // 手牌会被打空
+  // ⚠️ 上限要按「刚摸完牌、还没出牌」的时刻判：那一刻手牌是 14 张（面+副露总量 15 实属正常）。
+  //    早期版本硬卡 14，导致「碰完再摸到第 4 张」时补杠被误拒 —— 明明是该杠的牌却杠不了。
+  //    杠完副露变 4 张、手牌少 1，总量正好回落到 14，牌型合法。
+  const cap=(G.phase==='discard'&&G.turn===p&&G.drawn!==null)?15:14;
+  if(nh+np>cap)return false;                            // 总实物超过上限（非法牌型）
+  return true;
+}
+/* 别人打出一张牌后按座次决定谁能要 —— 轮到你时把**所有**能做的动作一起弹出来。
+   原来是「胡 → 杠 → 碰」三个分支各 return，同时可选时只弹一个
+   （用户反馈："有胡牌、补杠等同时可选时应该弹出所有选项"）。
+   ⚠️ AI 行为**不变**：仍按座次取第一个能胡的、再第一个能杠的、再第一个能碰的。 */
+function checkClaims(from,card){
+  const order=[];for(let k=1;k<4;k++)order.push((from+k)%4);
+  // 1) 胡（点炮）：平胡必须有豆；大对子等平胡以上牌型无豆也可胡
+  let huP=-1;
+  for(const p of order){
+    G.hands[p][card]++;
+    const ok=canHu(G.hands[p],G.melds[p],{zimo:false,force:!!(G.bao&&G.bao[from])});   // 打分者的牌若是"报听者"打出的 → 无豆也能平胡
+    G.hands[p][card]--;
+    if(ok){huP=p;break;}
+  }
+  if(huP>=0){
+    G.winTile=card;
+    if(huP===PLAYER){
+      // 我能胡 → 把"杠/碰"也一起收集（能杠能碰时全列出来，由玩家自己挑）
+      const list=[{type:'hu',card:card,from:from}];
+      if(canMelded(PLAYER,'gang')&&G.hands[PLAYER][card]>=3)list.push({type:'gang',card:card,from:from});
+      if(canMelded(PLAYER,'peng')&&G.hands[PLAYER][card]>=2)list.push({type:'peng',card:card,from:from});
+      setActions(list);render();return;
+    }
+    doHu(huP,from,false);return;
+  }
+  // 2) 明杠 / 3) 碰：AI 先处理；轮到玩家则统一在下面收集
+  for(const p of order){
+    if(canMelded(p,'gang')&&G.hands[p][card]>=3){
+      if(p===PLAYER)break;
+      doGang(p,card,from);return;
+    }
+  }
+  for(const p of order){
+    if(canMelded(p,'peng')&&G.hands[p][card]>=2){
+      if(p===PLAYER)break;
+      if(shouldPeng(p,card)){doPeng(p,card,from);return;}
+    }
+  }
+  {
+    const list=[];
+    if(canMelded(PLAYER,'gang')&&G.hands[PLAYER][card]>=3)list.push({type:'gang',card:card,from:from});
+    if(canMelded(PLAYER,'peng')&&G.hands[PLAYER][card]>=2)list.push({type:'peng',card:card,from:from});
+    if(list.length){setActions(list);render();return;}
+  }
+  nextTurn(from);
+}
+/* 设置/清空待决动作：pendingAction 始终 = 列表第一项（兼容"有没有待决动作"的判断） */
+function setActions(list){
+  G.actions=(list||[]).filter(Boolean);
+  G.pendingAction=G.actions[0]||null;
+  // 有可做动作时给一声提示：能胡用最亮的五音琶音，可碰/可杠用三连叮。
+  // 放在这里而不是两个调用点，是为了以后再加"可选动作"入口时不会漏掉音效。
+  if(G.actions.length)SFX.play(G.actions.some(a=>a.type==='hu')?'huReady':'alert');
+}
+function clearActions(){G.pendingAction=null;G.actions=[];}
+function nextTurn(from){
+  // 保留 lastDiscard：最新的弃牌高亮持续到下一张牌被打出为止（贴近真牌桌观感）
+  const p=(from+1)%4;G.turn=p;G.pendingAction=null;G.actions=[];G.drawn=null;
+  render();setTimeout(()=>drawTile(p),300);
+}
+// 轮到自己时，手里有 4 张可暗杠、或摸到第 4 张可补杠，自动转成待办动作提示
+/* 轮到自己、刚摸完牌时的提示。
+   ⚠️ 这里**只写日志、不设 pendingAction**：操作条的"非待决"分支本来就会把
+      「自摸 / 暗杠 / 补杠」**一起**列出来；原来把它设成单一 pendingAction，
+      反而把「自摸胡」按钮挤掉了（本该"能胡又能补杠"却只弹补杠）—— 用户实测反馈。
+   返回 true = 有可做的动作（调用方就不再写"轮到你了，请出牌"）。 */
+/* ===== 报听 / 天听 =====
+   窗口：本局该玩家**第一次摸完牌、还没出过牌**的那一刻（14 张）。
+   条件：存在一张牌，打掉它之后手牌成"听牌"（即"打一张就听"）。
+   之后（doBaoTing 置位 G.bao[p]）由三处保证规则：
+     ① canMelded 直接返回 false → 不能碰、不能杠；
+     ② drawTile 里"摸什么打什么"→ 手牌形状固定不变，听牌型不会被换掉；
+     ③ 结算时按 报听 17 / 天听 34 计（取最高）。
+   本局第一次摸牌 → 闲家记「天听」34，庄家记「报听」17（用户表注明"庄家不可天听"）。 */
+function canBaoTing(p){
+  if(G.bao[p])return false;
+  if(!G.firstDraw[p])return false;                 // 已打过牌 → 过了窗口（firstDraw 只在出牌时置 false）
+  if(G.phase!=='discard'||G.turn!==p||G.drawn===null)return false;
+  if(G.pendingAction)return false;
+  const n=G.hands[p].reduce((a,b)=>a+b,0);
+  if(n%3!==2)return false;                         // 必须是"刚摸完（3n+2）"的形态
+  for(let c=0;c<27;c++){
+    if(!G.hands[p][c])continue;
+    G.hands[p][c]--;
+    const ok=isTing(p);
+    G.hands[p][c]++;
+    if(ok)return true;                             // 打掉这张就听
+  }
+  return false;
+}
+function baoFanOf(p){return (p===G.dealer)?BAOTING_FAN:TIANTING_FAN;}
+function doBaoTing(p){
+  if(!canBaoTing(p))return;
+  G.bao[p]=true;
+  G.baoName[p]=(p===G.dealer)?'报听':'天听';
+  log(`${NAMES[p]}${G.baoName[p]}！之后摸什么打什么、不能换牌（${baoFanOf(p)} 番）`);
+  SFX.play('huReady');
+  render();
+}
+function autoGangHint(){
+  if(G.phase!=='discard'||G.turn!==PLAYER||G.pendingAction||G.drawn===null)return false;
+  const c=G.drawn;
+  const tips=[];
+  if(canHu(G.hands[PLAYER],G.melds[PLAYER],{zimo:true}))tips.push('可自摸胡');
+  if(G.hands[PLAYER][c]>=4&&canMelded(PLAYER,'angang'))tips.push('可暗杠 '+cname(c));
+  const penged=G.melds[PLAYER].find(m=>m.type==='peng'&&m.card===c);
+  if(penged&&canMelded(PLAYER,'bugang'))tips.push('可补杠 '+cname(c)+'（三家各 3 番）');
+  if(!tips.length)return false;
+  log('轮到你了：'+tips.join(' / ')+' · 也可以直接出牌');
+  return true;
+}
+// 补杠（爬坡豆）：碰过又摸到第 4 张。结算时三家各付 3 番（比闷豆高）
+// ⚠️ 抢杠胡：补杠的那张牌是「实际打出去的一张牌」，
+//    若正好是别人听的那张，他可以抢胡 —— 由补杠者一家包赔（4 倍）。
+//    这是搜狗百科「贵州麻将」词条列明的条款，也让补杠不再是稳赚不赔。
+function doBuGang(p,card){
+  G.hands[p][card]-=1;
+  const i=G.melds[p].findIndex(m=>m.type==='peng'&&m.card===card);
+  if(i>=0)G.melds[p][i]={type:'gang',card,from:G.melds[p][i].from,paPo:true};
+  SFX.play('bugang');   // 补杠（爬坡豆）：中音双响，"再接一张上来"
+  // 记录本次刚成的豆，供热炮时「杠前成的豆不算」撤销使用
+  G.hotCannonGang={p:p,card:card,paPo:true,from:i>=0?G.melds[p][i].from:-1};
+  log(`${NAMES[p]}补杠了 ${cname(card)}（爬坡豆）`);render();
+  // 抢杠检查：在真正摸牌之前，看其他三家谁能胡这张牌
+  if(checkQiangGang(p,card))return;
+  G.turn=p;G.pendingAction=null;G.actions=[];G.drawn=null;G.gangFlower=true;setTimeout(()=>drawTile(p),550);
+}
+// 抢杠胡检查：返回 true 表示有人抢胡（牌局就此结束，不再补摸）
+// ⚠️ 抢杠不受豆豆通行证限制：
+//   补杠的那张牌等于「别人送上门的一张牌」，与自摸性质相同（都不是你主动点炮），
+//   搜狗百科词条也只对「点炮」设 ≥5 番门槛（热炮条款原文：
+//   「如果听牌者是无豆的平胡依然可以胡」）。故这里传 {zimo:true} 绕过番数门槛。
+function checkQiangGang(gangP,card){
+  const order=[];for(let k=1;k<4;k++)order.push((gangP+k)%4);
+  for(const p of order){
+    G.hands[p][card]++;
+    const ok=canHu(G.hands[p],G.melds[p],{zimo:true});   // 绕过豆豆通行证
+    G.hands[p][card]--;
+    if(ok){
+      G.winTile=card;
+      // 玩家抢杠：不替他做主，挂起等他点「胡」或「过」——
+      // 抢杠胡是收益最高的胡法，错过就没了，必须让玩家自己决定
+      if(p===PLAYER){
+        G.pendingAction={type:'hu',card,from:gangP,byQiangGang:true};
+        G.qiangGangPending=gangP;
+        log(`可以抢杠胡 ${cname(card)}！`);
+        SFX.play('huReady');   // 你能抢杠胡：全套里最亮的五音琶音
+        render();return true;
+      }
+      G.qiangGang=true;          // 标记本局为抢杠胡：结算时包赔
+      log(`${NAMES[p]}抢杠胡了 ${cname(card)}！`);
+      SFX.play('qianggang');
+      doHu(p,gangP,false);       // 由补杠者一家包赔（from=补杠者）
+      return true;
+    }
+  }
+  return false;
+}
+// 玩家选择「过」不抢杠：恢复补杠流程，让补杠者继续摸牌
+function passQiangGang(){
+  const gangP=G.qiangGangPending;
+  G.qiangGangPending=null;G.pendingAction=null;G.actions=[];G.winTile=null;
+  if(gangP===null||gangP===undefined||G.phase==='over'){render();return;}
+  G.turn=gangP;G.drawn=null;G.gangFlower=true;
+  log('不抢杠胡');
+  render();setTimeout(()=>drawTile(gangP),550);
+}
+// 兼容旧调用名：默认按「3 张面子」的口径判定
+function canAffordMeld(p,consume){return canMelded(p,consume===2?'peng':consume===4?'angang':'gang');}
+function doPeng(p,card,from){
+  G.hands[p][card]-=2;G.melds[p].push({type:'peng',card,from});G.discards[from].pop();
+  SFX.play('peng');   // 碰：三声"嗒嗒嗒" = 三张牌码齐
+  // 责任鸡④：**任何鸡牌**（幺鸡 / 乌骨鸡；本局捉鸡牌在打牌时还没翻出来，故不算）
+  //   被打出后被**碰走** → 那副露按 3 张算，打出这张牌的人从此多付 1 分。
+  // ⚠️ 这里只**记录**、不当场判分：① "碰走者要叫牌" 是结算时才定的（他可能此刻还没听、后来才听）；
+  //    ② "打出者是否未叫" 同理。两个前提都在 chickenSettle ⑤ 里判。
+  if(isRespTile(card))G.respChickens.push({from:from,by:p,card:card,how:'碰'});
+  // 冲锋鸡③：被碰走 → **责任转移**（持有者候选换成碰走者；结算时若他没叫牌则退回原打出者）
+  if(G.chargeChicken&&G.chargeChicken.p===from&&G.chargeChicken.card===card){
+    G.chargeChicken={p:p,card:card,via:'碰',from:from};
+    log('冲锋鸡（'+cname(card)+'）被 '+NAMES[p]+' 碰走 → 责任转移到 '+NAMES[p]);
+  }
+  // 该牌已被碰走，取消最新弃牌高亮
+  G.lastDiscard=null;G.lastDiscardBy=-1;
+  G.turn=p;G.pendingAction=null;G.actions=[];G.drawn=null;
+  if(p===PLAYER){
+    G.phase='discard';
+    // 碰完只剩 11 张、又**没有"刚摸到的那张"**可参考，玩家最容易在这里卡住不知道该打哪张。
+    // 直接算一张建议出来（render 里会给它画绿色虚线框 + 手牌上方浮一条提示）。
+    const sg=suggestCard(PLAYER);
+    log('碰了 '+cname(card)+'，该你出牌'+(sg!==null?' · 建议打 '+cname(sg):''));
+  }else{
+    log(`${NAMES[p]}碰了 ${cname(card)}`);
+  }
+  render();
+  if(p!==PLAYER)setTimeout(()=>discard(p,aiDiscardSmart(p)),650);
+}
+// 明杠统一走这里：被杠走的牌从该家弃牌区移除
+// 杠后要补摸一张，若补摸牌成胡即为「杠上花」（+1 番）
+function doGang(p,card,from){
+  G.hands[p][card]-=3;G.melds[p].push({type:'gang',card,from});
+  SFX.play('gang');   // 明杠：四声、更矮更重
+  G.hotCannonGang={p:p,card:card,paPo:false,from:from};
+  // 责任鸡④ / 冲锋鸡③：明杠把牌拿走，与碰同理（口径见 doPeng）
+  if(isRespTile(card))G.respChickens.push({from:from,by:p,card:card,how:'杠'});
+  if(G.chargeChicken&&G.chargeChicken.p===from&&G.chargeChicken.card===card){
+    G.chargeChicken={p:p,card:card,via:'杠',from:from};
+    log('冲锋鸡（'+cname(card)+'）被 '+NAMES[p]+' 杠走 → 责任转移到 '+NAMES[p]);
+  }
+  if(from>=0){G.discards[from].pop();G.lastDiscard=null;G.lastDiscardBy=-1;}
+  log(`${NAMES[p]}杠了 ${cname(card)}`);render();
+  G.turn=p;G.pendingAction=null;G.actions=[];G.drawn=null;G.gangFlower=true;setTimeout(()=>drawTile(p),550);
+}
+// 暗杠（手里4张）：不扣牌墙外的手牌张数逻辑与其他杠一致
+function doAnGang(p,card){
+  G.hands[p][card]-=4;G.melds[p].push({type:'gang',card,from:-1});
+  SFX.play('angang');   // 暗杠：闷响（牌扣着敲桌）
+  G.hotCannonGang={p:p,card:card,paPo:false,from:-1};
+  log(`${NAMES[p]}暗杠了 ${cname(card)}`);render();
+  G.turn=p;G.pendingAction=null;G.actions=[];G.drawn=null;G.gangFlower=true;setTimeout(()=>drawTile(p),550);
+}
+function doHu(p,from,zimo){
+  // 点炮时那张牌是「别人打出的」，从未进入手牌。
+  // 结算必须把它算作成牌，否则手牌永远只有 13 张，
+  // huPattern 判定失败 → 静默退化成「平胡 1 番」（七对/大对子/清一色全被算错）。
+  // 这里临时把牌补进手牌，结算完再还原，保证 G 状态不被污染。
+  let added=false;
+  if(!zimo&&from>=0&&typeof G.winTile==='number'){
+    G.hands[p][G.winTile]++;added=true;
+  }
+  // 玩家「抢杠胡」是挂起后由点击触发的，checkQiangGang 当时只挂起、没置标记，
+  // 这里按待决动作补上，否则会按普通点炮结算（少 ×4）。
+  if(!zimo&&G.pendingAction&&G.pendingAction.byQiangGang)G.qiangGang=true;
+  G.qiangGangPending=-1;
+  G.phase='over';
+  // 热炮（杠上炮）：刚杠完补摸的第一张牌打出去就点炮 → 番数翻倍，
+  // 且点炮者「杠前成的那个豆不算」（不给他记这杠的收益）。
+  // ⚠️ 必须先取：settle() 的入参读的就是 G.hotCannon，紧随其后它就被清成 false 了。
+  const _hot=G.hotCannon===true;   // 热炮（杠上炮）→ 胡牌音之后再叠一段"烧掉"的下行音
+  const res=settle(p,from,zimo,G.hotCannon===true);
+  G.hotCannon=false;
+  if(added)G.hands[p][G.winTile]--;   // 还原，避免影响下一局的牌数统计
+  render();showResult(res);
+  // 胡牌音：自摸 > 点炮；牌型 ≥17 番（清一色/龙七对/大对子…）换成更长的"大牌"版。
+  // 三个音的**时序**是刻意排开的：胡牌音 0s → 翻鸡音 0.75s（见 settle）→ 结算窗音 1.1s
+  // （见 showResult）。同时响会糊成一团噪音，错开才听得清"胡了 → 翻鸡 → 结算"这三步。
+  const _big=!!(res.pat&&res.pat.fan>=17);
+  SFX.play(zimo?(_big?'huBig':'zimo'):(_big?'huBig':'hu'));
+  if(_hot)SFX.play('hotcannon',{delay:0.55});   // 热炮（杠上炮）：再叠一段"烧掉"的下行音
+}
+
+// ===== 鸡牌：身份 / 归属 / 结算（贵阳捉鸡）=====
+/* 本节是鸡分的**唯一权威实现**：改规则只改这里，界面、日志、测试都跟着它走。
+   与规则条目一一对应，注释里标了 ①~⑤（对应需求里的五条）。
+
+   ## 一、本局的"鸡牌"身份由翻牌决定（②）
+   · **翻牌** = 牌墙里第 1 张未摸的牌（G.wall 栈顶）。**有玩家胡牌且牌墙未空**时才翻。
+   · **鸡牌（捉鸡牌）** = 翻牌**同花色点数 +1**（9 → 回 1）。
+     例：翻 5万 → 6万是鸡；翻 9筒 → 1筒是鸡。
+   · 鸡牌恰为幺鸡(1条) / 乌骨鸡(8筒) → 这两种牌本局**升为金鸡**（分值 ×2）。
+
+   ## 二、每张鸡的分值 v
+     幺鸡 1 分/张（金 2）｜ 乌骨鸡 8筒 1 分/张（金 2）｜ 鸡牌本身（第三门牌）1 分/张
+   ⚠️ 一张牌**只按一个身份计一次**：鸡牌恰是幺鸡时，"幺鸡"和"捉鸡牌"是同一张，绝不重复加分。
+
+   ## 三、计数口径 —— ①与②⑤的边界在"按牌种分宽窄"
+   · **常鸡**（幺鸡/8筒，且本局**不是**鸡牌）→ **窄口径**：
+       叫牌家：手牌 + 副露 + 自己牌河，全算（归自己）；
+       未叫家：**打出的**（牌河）计入叫牌家；**手中保留的**（手牌+副露）**不计**。
+       → ①：未听牌者手里留着的鸡不送人，打出去的白送。
+   · **捉鸡牌**（本局鸡牌那张）→ **宽口径**：无论**在手还是已打出**都算
+       （②「包括已打出的」+ ⑤「无论在手还是已打出」）。
+   · 鸡牌恰是幺鸡/8筒时两类合一 → 按宽口径（⑤明文优先）。
+   ⚠️ 副露（碰/杠亮出来的牌）算"保留"不算"打出"——它还在自己门前，被碰走的牌归碰的人。
+
+   ## 四、收付方向（①⑤）
+   每张归叫牌家的鸡值 v 分，由**每个未叫家各赔 v 分**给该叫牌家。
+   → "未叫家打出的鸡"归**每个**叫牌家各一份，所有未叫家各赔一份。
+   → 四家都叫牌：没有未叫家 → 鸡分不转移（互不赔）；无人叫牌 → 不结算。
+   注：**叫牌家集合 = 胡牌者 ∪ 听牌者**（③把两者并列，实质同一集合：胡牌者必然叫过牌）。
+
+   ## 五、冲锋鸡（③）/ 责任鸡（④）—— 独立收付，不走上面这套
+   · 冲锋鸡 = 本局**全局第一张**被打出的**幺鸡或乌骨鸡**（一局只有一只，谁先打谁持有）。
+     分值 2；本局翻到**金鸡**（金幺鸡 **或** 金乌骨鸡）→ 4。
+     **责任转移**：这张牌被**叫牌家**碰/杠走 → 持有者换成碰走者（前提是"碰走者听牌或胡牌"，
+     在结算时判定）；碰走者未叫 → 不转移，仍归原打出者。
+     收付：持有者叫牌 → **每个未胡玩家各付 2 分**（赢家不付，也不含持有者本人）；
+           持有者未叫 → 他给**每个**叫牌/胡牌玩家各付 2 分。
+   · 责任鸡 = 打出的**幺鸡**被**叫牌家碰/杠走** → 那副露按碰 3 / 杠 4 张计入碰走者的鸡分
+     （即用户说的"其它家给 3 鸡"），打出这张牌的人**多付 1 分**（"打出的给 4 鸡"）。
+     前提：碰走者必须叫牌（否则那副露的鸡不算）；打出者必须未叫（叫牌家之间鸡分互不赔）。
+   ⚠️ 牌种口径（用户 2026-09-15 明确）：**乌骨鸡参与冲锋鸡、不参与责任鸡**。
+      即：第一张打出的乌骨鸡可以是冲锋鸡（也能被碰走后转移责任），但乌骨鸡被碰走**不产生**
+      那额外的 1 分。代码里两个开关：`CHARGE_ANY_CHICKEN`（冲锋鸡）与 `isRespTile`（责任鸡）。
+   ⚠️ 明杠与碰同等处理（代码里 how 区分）。 */
+const YAOJI=9, WUGUJI=25;
+const CHARGE_ANY_CHICKEN=true;               // ⚠️ 用户口径（2026-09-15）：**乌骨鸡参与冲锋鸡**。
+                                             //    所以冲锋鸡 = 本局第一张被打出的"幺鸡**或**乌骨鸡"。
+                                             //    注意责任鸡是**另一条**（只认幺鸡，见 isRespTile）。
+const BAOTING_FAN=17, TIANTING_FAN=34, OPEN_FOLLOW_FAN=4;   // 报听/天听/开局跟 的番值
+/* 报听的口径说明（两个来源有冲突，这里按**用户的表**实现，一行可切）：
+   · 百科《贵阳捉鸡》：「起手牌天听（庄家起手牌或闲家摸第一张牌时听牌）可以报听，此后不能换牌、
+     摸着牌就必须打（也不能杠牌），直到胡牌」+「报听者的牌按清一色 10 番计」；
+   · 用户的番表：报听 17 番、天听 34 番（且注明"庄家不可天听"）。
+   → 本实现取用户的表：闲家首摸即报听 = 天听 34；庄家开局即报听 = 报听 17。
+     若要用百科口径（一律按清一色 10 番），把下面两个常量改成 10 / 10 即可。 */
+const isChargeTile=c=>CHARGE_ANY_CHICKEN?isChickenTile(c):(c===YAOJI);   // 冲锋鸡用（幺鸡 或 乌骨鸡）
+/* 责任鸡④（"打出的鸡被碰/杠走 → 打出者多付 1 分"）**只认幺鸡**。
+   用户口径（2026-09-15）："乌骨鸡参与冲锋鸡，不算责任鸡" —— 乌骨鸡被碰走只影响冲锋鸡的责任转移，
+   不产生那额外的 1 分。（要让乌骨鸡也算，把这里改成 isChickenTile 即可。） */
+const isRespTile=c=>c===YAOJI;
+
+// 一张牌在本局作为"鸡"的分值（金鸡翻倍）；不是鸡 → 0
+function chickenValue(c,fc){
+  if(c===YAOJI)  return fc===YAOJI?2:1;      // 鸡牌恰是幺鸡 → 金幺鸡 2 分/张
+  if(c===WUGUJI) return fc===WUGUJI?2:1;     // 鸡牌恰是乌骨鸡 → 金乌骨鸡 2 分/张
+  return c===fc?1:0;                         // 鸡牌本身（第三门牌）1 分/张
+}
+const isFieldChicken=c=>c===G.chickenCard;   // 宽口径 = 本局的捉鸡牌
+// 鸡牌在界面上的叫法：麻将桌上就叫"幺鸡/乌骨鸡"，比自己看"1条/8筒"直观
+const chickenName=c=>(c===YAOJI?'幺鸡(1条)':c===WUGUJI?'乌骨鸡(8筒)':cname(c));
+
+/* 一家"鸡"的分布（**只统计、不判分**）。
+   ⚠️ 必须按**牌种**分别记 keep/disc：口径是按牌种定的（常鸡窄、捉鸡宽），
+      合成一个总数就没法区分了。 */
+function chickenSurvey(p){
+  const fc=G.chickenCard;
+  const keep={},disc={};
+  const put=(o,c)=>{if(!chickenValue(c,fc))return;o[c]=(o[c]||0)+1;};
+  toList(G.hands[p]).forEach(c=>put(keep,c));
+  // 副露：碰 3 张 / 杠 4 张，都算"留在自己门前"（保留）
+  G.melds[p].forEach(m=>{for(let k=0;k<(m.type==='gang'?4:3);k++)put(keep,m.card);});
+  (G.discards[p]||[]).forEach(c=>put(disc,c));
+  const rows=Object.keys(Object.assign({},keep,disc)).map(Number).sort((a,b)=>a-b)
+    .map(c=>({c:c,v:chickenValue(c,fc),keep:keep[c]||0,disc:disc[c]||0,wide:isFieldChicken(c)}));
+  return {p:p,rows:rows};
+}
+// 一家的明细文字："留 幺鸡×2 8筒×1 ｜ 打 6万×1"（用户要求：把每家的鸡**类型与数量**写出来）
+function chickenCells(s){
+  const f=(k)=>s.rows.filter(r=>r[k]).map(r=>chickenName(r.c)+'×'+r[k]).join(' ');
+  const parts=[];
+  if(f('keep'))parts.push('留 '+f('keep'));
+  if(f('disc'))parts.push('打 '+f('disc'));
+  return parts.join(' ｜ ')||'无鸡';
+}
+// 一家的全部鸡的**张数**与分值（含宽窄口径之外的自有部分，供显示 ）
+function chickenOwnPts(s){return s.rows.reduce((a,r)=>a+(r.keep+r.disc)*r.v,0);}
+
+/* 鸡分结算。total 传数组 = 真结算；传 null = **只统计不落分**（荒庄用，规则："黄庄豆鸡不算分"）。
+   写进 total，并把可直接显示的明细 push 到 lines。
+   顺序：① 翻（捉）鸡牌 → ② 每家鸡的类型/数量 → ③ 常鸡+捉鸡收付 → ④ 冲锋鸡 → ⑤ 责任鸡 */
+function chickenSettle(winner, lines, total){
+  const dry=!total;
+  const fc=G.chickenCard;
+  const called=[0,1,2,3].map(p=>p===winner||isTing(p));   // 叫牌家 = 胡牌者 ∪ 听牌者
+  const callList=[0,1,2,3].filter(p=>called[p]);
+  const unList=[0,1,2,3].filter(p=>!called[p]);
+  const sur=[0,1,2,3].map(p=>chickenSurvey(p));
+  const gold=(fc===YAOJI)?'（金幺鸡 ×2）':(fc===WUGUJI)?'（金乌骨鸡 ×2）':'';
+
+  // ② 翻牌 + 每家明细（叫牌/未叫、手里的、打出的）
+  lines.push(`翻（捉）鸡牌：${fc!==null?chickenName(fc)+gold:'无（牌墙已空，不翻牌）'}`);
+  sur.forEach((s,p)=>{
+    const own=chickenOwnPts(s);
+    lines.push(`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${chickenCells(s)}${own?'（'+own+'分）':''}`);
+  });
+
+  // ③ 常鸡 / 捉鸡 的收付
+  if(!dry){
+    if(callList.length&&unList.length){
+      const got=[];
+      callList.forEach(a=>{
+        let per=0;                                    // 每个未叫家应付给 a 的分
+        sur[a].rows.forEach(r=>{per+=(r.keep+r.disc)*r.v;});                  // a 自己的全归己
+        unList.forEach(b=>{
+          // 未叫家：**打出**的都算（规则①）；**保留**的只在"该牌是捉鸡牌"时才算（规则⑤）
+          sur[b].rows.forEach(r=>{per+=r.disc*r.v+(r.wide?r.keep*r.v:0);});
+        });
+        if(!per)return;
+        unList.forEach(b=>{total[b]-=per;total[a]+=per;});
+        got.push(`${NAMES[a]} 每个未叫家收 ${per} 分 × ${unList.length} 家`);
+      });
+      lines.push(got.length?`鸡分：${got.join('；')}`:'鸡分：本局无有效鸡分（鸡都在未叫家手里留着）');
+    }else if(callList.length){
+      lines.push('鸡分：四家都叫牌 → 鸡分互不赔（鸡分只在"叫牌 ↔ 未叫"之间结算）');
+    }else{
+      lines.push('鸡分：本局无人叫牌 → 鸡分不计');
+    }
+  }else{
+    lines.push('（荒庄：本局豆、鸡都不算分，上面只是各家的鸡牌统计）');
+  }
+
+  // ④ 冲锋鸡（③）—— 本局全局第一张被打出的幺鸡
+  //    持有者：默认 = 打出者；被碰/杠走且**碰走者叫牌**（听牌或胡牌）→ 转移给碰走者。
+  //    ⚠️ 听牌状态在**结算这一刻**才判：碰的当时他还没听、后来听了，也算他叫牌。
+  //    收付：持有者叫牌 → **每个未胡玩家各付 2 分**（金鸡 4；赢家不付，也不含持有者本人）；
+  //          持有者未叫 → 他给每个叫牌家各付 2 分（鸡分只在"叫牌 ↔ 未叫"之间走）。
+  const ch=G.chargeChicken;
+  const cvG=(fc===YAOJI||fc===WUGUJI)?4:2;                // ③：翻到金鸡（金幺鸡 或 金乌骨鸡）→ 4 分
+  if(ch){
+    let holder=ch.p,via='';
+    if(ch.via){
+      if(called[ch.p]){via='（原打出者 '+NAMES[ch.from]+'，被 '+ch.via+'走 → 责任已转移）';}
+      else{
+        holder=ch.from;
+        lines.push(`冲锋鸡责任转移：${NAMES[ch.p]} ${ch.via}走时**未叫牌** → 不转移，仍归原打出者 ${NAMES[holder]}`);
+      }
+    }
+    const what=`${chickenName(ch.card)}${via}`;
+    if(called[holder]){
+      // 付款方 = **每个未胡玩家**（赢家不付；也不含持有者本人）
+      const payers=[0,1,2,3].filter(q=>q!==holder&&q!==winner);
+      if(payers.length){
+        if(!dry)payers.forEach(q=>{total[q]-=cvG;total[holder]+=cvG;});
+        const wTag=(winner>=0&&winner!==holder)?'（赢家不付）':'';
+        lines.push(`冲锋鸡：${NAMES[holder]} 打出的第一张${what}（叫牌）→ 每个未胡玩家各付 ${cvG} 分 × ${payers.length} 家${wTag}`);
+      }else{
+        lines.push(`冲锋鸡：${NAMES[holder]} 的${what}（除他之外都已胡牌）→ 无人可收`);
+      }
+    }else if(callList.length){
+      if(!dry)callList.forEach(q=>{total[holder]-=cvG;total[q]+=cvG;});
+      lines.push(`冲锋鸡：${NAMES[holder]} 打出的第一张${what}（未叫）→ 给每个叫牌家各付 ${cvG} 分 × ${callList.length} 家`);
+    }else{
+      lines.push(`冲锋鸡：${NAMES[holder]} 打出的第一张${what}（全场无人叫牌）→ 不结算`);
+    }
+  }
+
+  // ⑤ 责任鸡（④）—— "其它家给 3 鸡、打出的给 4 鸡"
+  //    任何鸡牌被打出后被**碰/杠走**：那副露进碰走者的门前（碰 3 / 杠 4 张，已在③段按"保留"计入他的鸡分，
+  //    所以"其它未叫家各付 3"是③段自动出来的），本条只额外收**打出者那 1 分**。
+  //    两个前提（都在结算时判）：
+  //      ① 碰走者必须叫牌 —— 否则那副露的鸡不算（未叫家保留的常鸡不计），整条不结算；
+  //      ② 打出者必须未叫 —— 他本来就站在"给 3"那一侧；若他本人也是叫牌家，则与碰走者同为叫牌、
+  //         鸡分互不赔，不产生收付（否则会出现"叫牌家之间赔鸡分"，与总规则冲突）。
+  const rps=G.respChickens||[];
+  rps.forEach(rp=>{
+    const tiles=(rp.how==='杠'||rp.how==='明杠')?4:3;
+    const v=chickenValue(rp.card,fc);
+    // ⚠️ 牌种二次把关：责任鸡只认幺鸡（乌骨鸡"参与冲锋鸡、不算责任鸡"）。
+    //    记录侧（doPeng/doGang）已经只记幺鸡；这里再挡一道，规则不会因为别处误记而跑偏。
+    if(!isRespTile(rp.card)){
+      lines.push(`责任鸡：${NAMES[rp.by]} 碰/杠走的是${chickenName(rp.card)} → 乌骨鸡不参与责任鸡，本条不结算`);
+      return;
+    }
+    if(!called[rp.by]){
+      lines.push(`责任鸡：${NAMES[rp.from]} 的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走，但 ${NAMES[rp.by]} 未叫牌 → 这副露的鸡不算，本条不结算`);
+      return;
+    }
+    if(called[rp.from]){
+      lines.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走，但打出者本人也叫牌 → 双方鸡分互不赔，本条不结算`);
+      return;
+    }
+    if(!dry){total[rp.from]-=1;total[rp.by]+=1;}
+    lines.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走 → 这副露按 ${tiles} 张算，其它未叫家各付 ${tiles*v} 分、${NAMES[rp.from]} **多付 1 分**（共 ${tiles*v+1} 分），付给 ${NAMES[rp.by]}`);
+  });
+  return {detail:sur,called:called,fieldChicken:fc};
+}
+// 热炮（杠上炮）惩罚：「点炮者杠前成的那个豆不算」。
+// 实现在结算时把该玩家本局刚成的那个杠的收益撤销 ——
+// 也就是扣掉他这杠本该收的番（爬坡豆 3×3家 / 闷豆 2×3家 / 点豆 1×1家），
+// 由其他三家反收回来。若找不到那次杠（信息缺失），退化为只按 ×2 番处理。
+function hotCannonRepeal(p,lines,total){
+  const g=G.hotCannonGang;
+  if(!g||g.p!==p)return;
+  let back=0,desc='';
+  if(g.paPo){back=9;desc='爬坡豆 3×3家';}
+  else if(g.from<0){back=6;desc='闷豆 2×3家';}
+  else{back=1;desc='点豆 1×1家';}
+  const each=g.paPo||g.from<0?3:1;
+  if(g.from<0||g.paPo){for(let q=0;q<4;q++)if(q!==p){total[q]+=each;total[p]-=each;}}
+  else{total[g.from]+=1;total[p]-=1;}
+  lines.push(`热炮惩罚：${NAMES[p]} 本局刚成的${desc}不算（撤销 ${back} 番）`);
+}
+/* ===== 豆（杠）的结算 —— 贵阳捉鸡标准 =====
+   闷豆（暗杠）：其他三家各 2 番；
+   爬坡豆（补杠）：其他三家各 3 番（三种豆里最高）；
+   点豆（明杠）：点杠那家付 1 番。
+   🔴 得豆**必须听牌**才生效：本局是别人胡牌时，没听牌的人这一局"豆"一分不拿。
+      规则原文：「想通过豆拿分，前提是自己必须已经听牌才算有效……如果本局由其他玩家胡牌，
+      而获得豆的玩家自己始终没有进入听牌状态，那么这一局通过暗杠/补杠/明杠所得的豆统统不计分。」
+      胡牌者不受此限（他本来就是听牌胡的）。黄庄时豆、鸡都不算分（走 endGame 的查叫）。
+   ⚠️ 抢杠胡时被抢的那个补杠【没成】：牌在"补杠途中"就被抢走，若照常结算会和抢杠番数互相抵消
+      （实测 +4/-4 被 +1/-1 抵成 +3/-3）→ 跳过它。
+   抽成独立函数的目的：结算规则以后要改只动这里，也能被自测脚本直接调用验证。 */
+function douSettle(winner,from,isQG,lines,total){
+  const skipGang=isQG?{p:from,card:G.winTile}:null;
+  for(let p=0;p<4;p++){
+    const douOn=(p===winner)||isTing(p);                 // 得豆需听牌（胡牌者天然算）
+    const myGangs=(G.melds[p]||[]).filter(m=>m.type==='gang'&&!m.void);
+    if(myGangs.length&&!douOn){
+      lines.push(`${NAMES[p]} 未听牌：本局 ${myGangs.length} 个豆不算分`);
+      continue;
+    }
+    myGangs.forEach(m=>{
+      if(skipGang&&p===skipGang.p&&m.card===skipGang.card&&m.paPo)return;
+      // ⚠️ 顺序不能反：补杠的 meld 继承了那副碰的 from（>=0），先判 from 就会把它误算成"点豆 1 番"。
+      if(m.paPo){for(let q=0;q<4;q++)if(q!==p){total[q]-=3;total[p]+=3;}lines.push(`${NAMES[p]} 转弯豆（补杠）${cname(m.card)}：三家各付 3 番`);}
+      else if(m.from>=0){total[m.from]-=1;total[p]+=1;lines.push(`${NAMES[p]} 点豆（明杠）${cname(m.card)}：${NAMES[m.from]}付 1 番`);}
+      else{for(let q=0;q<4;q++)if(q!==p){total[q]-=2;total[p]+=2;}lines.push(`${NAMES[p]} 闷豆 ${cname(m.card)}：三家各付 2 番`);}
+    });
+  }
+}
+function settle(winner,from,zimo,hotCannon){
+  // ---- 翻鸡牌：牌墙顶指示牌的「下一张」----
+  let chicken=null;
+  if(G.wall.length>0){const t=G.wall[G.wall.length-1];const s=(t/9)|0;chicken=s*9+((t%9+1)%9);}
+  G.chickenCard=chicken;
+  G.fieldChicken=chicken;
+  const lines=[],total=[0,0,0,0];
+  const isZimo=!!zimo;
+  // ---- 牌型番数（DoubleWin 权威表）----
+  let pat=huPattern(fullCount(G.hands[winner],G.melds[winner]),G.melds[winner].map(m=>m.card));
+  if(!pat)pat={fan:1,name:'平胡'};
+  // 天胡 / 地胡：庄家 / 闲家第一次摸牌即自摸（取代基础牌型，取最高）
+  const isTian=isZimo&&winner===G.dealer&&G.firstDraw[winner];
+  const isDi  =isZimo&&winner!==G.dealer&&G.firstDraw[winner];
+  let baseFan=pat.fan,patName=pat.name;
+  if(isTian){baseFan=33;patName='天胡';}
+  else if(isDi){baseFan=23;patName='地胡';}
+  // 报听 / 天听（见 canBaoTing 的注释）：按 17 / 34 与牌型番**取最高**，不叠加。
+  if(G.bao[winner]){
+    const bf=baoFanOf(winner);
+    if(bf>baseFan){baseFan=bf;patName=G.baoName[winner]||'报听';}
+  }
+  // ---- 带杠 每个 +1 番；杠上花 +1 番；自摸 +1 番 ----
+  const gangN=gangBonus(G.melds[winner]);
+  const flower=isZimo&&G.gangFlower;
+  // 自摸加 1 番：番数直接 +1（与牌型无关，平胡 1→2、大对子 5→6）
+  const zimoFan=isZimo?1:0;
+  // ---- 抢杠胡：番数 ×4，由补杠者一家包赔 ----
+  // 搜狗百科「贵州麻将」词条：抢杠胡 4 倍。
+  // 注意抢杠的前提是【别人补杠】，所以这里的「点炮者」= 补杠那家。
+  const isQG=!!G.qiangGang;
+  const qgMul=isQG?4:1;
+  // ---- 热炮（杠上炮）：点炮者在杠后打出的第一张牌点炮 → 番数 ×2 ----
+  // 搜狗百科：「热炮1倍；又称杠上炮，即在杠牌的情况下，打出的第一张牌点炮。」
+  const isHC=!!hotCannon&&!isZimo&&!isQG;
+  const hcMul=isHC?2:1;
+  const totalFan=(baseFan+(flower?1:0)+zimoFan)*qgMul*hcMul;   // ⚠️ 不含 gangN：豆按 douSettle 单独结算
+  const bonusTxt=[
+    isQG?'抢杠胡（×4）':'',
+    isHC?'热炮（×2）':'',
+    patName===pat.name?pat.name:'',
+    
+    flower?'杠上花（+1番）':'',
+    isZimo?'自摸（+1番）':''
+  ].filter(Boolean).join(' + ');
+  if(isZimo){
+    for(let p=0;p<4;p++)if(p!==winner){total[p]-=totalFan;total[winner]+=totalFan;}
+    if(isQG)lines.push(`抢杠胡 ${patName}：${bonusTxt}，共 ${totalFan} 番，${NAMES[from]}包赔 ${totalFan} 番`);
+    else lines.push(`自摸 ${patName}：${bonusTxt}，共 ${totalFan} 番，其他三家各付 ${totalFan}`);
+  }else if(isQG){
+    // 抢杠胡是「一家包赔」：补杠者付全部，与点炮同理但番数 ×4
+    total[from]-=totalFan;total[winner]+=totalFan;
+    lines.push(`抢杠胡 ${patName}：${bonusTxt}，共 ${totalFan} 番，${NAMES[from]}补杠包赔 ${totalFan} 番`);
+  }else{
+    total[from]-=totalFan;total[winner]+=totalFan;
+    if(isHC)lines.push(`热炮（杠上炮）${patName}：${bonusTxt}，共 ${totalFan} 番，${NAMES[from]}付 ${totalFan} 番`);
+    else lines.push(`点炮 ${patName}：${bonusTxt}，共 ${totalFan} 番，${NAMES[from]}付 ${totalFan}`);
+  }
+  // 热炮附加惩罚：点炮者「杠前成的那个豆不算」——
+  // 本局他刚成的那个杠（爬坡豆/闷豆）不参与结算，把它的收益撤销掉。
+  if(isHC)hotCannonRepeal(from,lines,total);
+  G.gangFlower=false;
+  // ---- 豆（杠）结算：闷豆 2 / 爬坡豆 3 / 点豆 1（见 douSettle）----
+  douSettle(winner,from,isQG,lines,total);
+
+  // ---- 捉鸡结算：鸡牌身份 / 归属 / 收付全在 chickenSettle 里（含规则①~⑤，见上方长注释）----
+  // 开局跟：三家都跟打同一张 → 跟打的每家从**庄家**收 4 分（庄家共付 12）。
+  // ⚠️ 给付方向是**推断**（规则只写了触发条件）——若该由跟打者付给庄家，把下面两行的 ± 对调即可。
+  if(G.openFollow&&G.openFollow.ok){
+    [0,1,2,3].forEach(q=>{if(q!==G.dealer){total[G.dealer]-=OPEN_FOLLOW_FAN;total[q]+=OPEN_FOLLOW_FAN;}});
+    lines.push(`开局跟：庄家 ${NAMES[G.dealer]} 首张 ${cname(G.openFollow.card)}，其余三家都跟打 → 三家各收 ${OPEN_FOLLOW_FAN} 分（庄家付）`);
+  }
+  const chRes=chickenSettle(winner,lines,total);
+  const det=chRes.detail;
+  const chickens=det.map(s=>chickenOwnPts(s));
+  SFX.play('chicken',{delay:0.75});   // 翻鸡牌：排在"胡牌音"之后（见 doHu 的时序注释）
+  // 记录本局得分并累计到总分
+  G.roundScore=total.slice();
+  for(let p=0;p<4;p++)G.scores[p]+=total[p];
+  G.result={winner,winTile:isZimo?-1:G.winTile};
+  endHandBookkeeping(winner);        // 胜家坐庄（下局他摇色子先出牌）+ 写本地记录
+  render();
+  // 回报的番数即结算番数（自摸已含 +1）
+  return {winner,lines,total,chickens,chicken,winTile:isZimo?-1:G.winTile,pat:{name:patName,fan:totalFan},fan:totalFan,zimo:isZimo,detail:det};
+}
+// 听牌：手牌 3n+1 张时，存在某张牌补进来即可胡（自摸口径，不受豆豆通行证限制）
+function isTing(p){
+  const n=G.hands[p].reduce((a,b)=>a+b,0);
+  if(n%3!==1)return false;
+  for(let c=0;c<27;c++){
+    G.hands[p][c]++;
+    const ok=canHuShape(fullCount(G.hands[p],G.melds[p]));
+    G.hands[p][c]--;
+    if(ok)return true;
+  }
+  return false;
+}
+/* 叫牌（听牌）后的**牌型番值**：取各张能胡的牌里最高的那个番型。
+   用于荒庄查叫（未叫牌者要赔给叫牌者"对应番值"）。
+   ⚠️ 取最高是常见约定（对叫牌者有利）；若要按最低/指定某张算，改这里一处即可。 */
+function tingFan(p){
+  const n=G.hands[p].reduce((a,b)=>a+b,0);
+  if(n%3!==1)return {fan:0,name:''};
+  let fan=0,name='';
+  for(let c=0;c<27;c++){
+    G.hands[p][c]++;
+    if(canHuShape(fullCount(G.hands[p],G.melds[p]))){
+      const pat=huPattern(fullCount(G.hands[p],G.melds[p]),G.melds[p].map(m=>m.card));
+      if(pat&&pat.fan>fan){fan=pat.fan;name=pat.name;}
+    }
+    G.hands[p][c]--;
+  }
+  return {fan:fan||1,name:name||'平胡'};
+}
+/* 黄庄（荒庄）查叫：未叫牌（未听牌）者赔给每个叫牌者「其听牌牌型的番值」。
+   规则原文：「牌摸完后无人胡牌叫黄庄，需查牌确定玩家是否叫牌(及听牌)及叫牌后的牌型番数……
+   若有人叫牌、有人未叫牌，未叫牌玩家需分别赔付每个叫牌玩家对应的番值；黄庄后所有豆鸡不算分」。
+   ⚠️ 番值取"能胡的各张牌里最高的那个番型"（常见约定，对叫牌者有利）；改口径只动 tingFan。 */
+function chajiaoSettle(lines,total){
+  const tingL=[],noL=[];
+  for(let p=0;p<4;p++)(isTing(p)?tingL:noL).push(p);
+  if(tingL.length&&noL.length){
+    tingL.forEach(t=>{
+      const pf=tingFan(t);
+      noL.forEach(n=>{total[n]-=pf.fan;total[t]+=pf.fan;});
+      lines.push(`${NAMES[t]} 叫牌（${pf.name} ${pf.fan} 番）：未叫牌的 ${noL.map(n=>NAMES[n]).join('、')} 各赔 ${pf.fan} 番`);
+    });
+  }else if(!tingL.length){
+    lines.push('四家都没叫牌（都没听牌），查叫不计分');
+  }else{
+    lines.push('四家都叫牌了，查叫互相不赔');
+  }
+  lines.push('黄庄：本局豆、鸡都不算分');
+  return {tingL:tingL,noL:noL};
+}
+function endGame(){
+  G.phase='over';
+  /* ===== 黄庄（荒庄）查叫 =====
+     贵阳捉鸡规则：「牌摸完后无人胡牌叫黄庄，需查牌确定玩家是否叫牌(及听牌)及叫牌后的
+     牌型番数……若有人叫牌、有人未叫牌，未叫牌玩家需分别赔付每个叫牌玩家对应的番值；
+     黄庄后所有『豆』『鸡』不算分」。 */
+  const lines=[],total=[0,0,0,0];
+  const ch=chajiaoSettle(lines,total);
+  // 荒庄也要写出各家的鸡类型/数量（规则要求）；total 传 null = **只统计不落分**
+  // ——「黄庄后所有豆、鸡都不算分」。
+  chickenSettle(-1,lines,null);
+  SFX.play('liuju');   // 荒庄：下行两音（泄气但不刺耳）
+  const tingL=(ch&&ch.tingL)||[];
+  // 先落分再记账（endHandBookkeeping 会把 G.scores 写进存档）
+  G.roundScore=total.slice();
+  for(let p=0;p<4;p++)G.scores[p]+=total[p];
+  G.result={winner:-1,winTile:-1,ting:tingL.slice()};
+  endHandBookkeeping(-1);            // 荒庄：庄家连庄，局数照样记一笔
+  render();
+  // 荒庄也要亮牌：牌墙摸完了，四家都是什么牌、谁听谁没听，摊开才看得明白
+  let main=`<div class="line"><span>牌墙已摸完，无人胡牌</span></div>`;
+  lines.forEach(l=>main+=`<div class="line"><span>${l}</span></div>`);
+  let side=`<div class="rScores">`;
+  for(let p=0;p<4;p++){const v=total[p];
+    side+=`<div class="line"><span>${NAMES[p]}${tingL.includes(p)?' <span style="color:#0a7">叫牌</span>':' <span style="color:#aaa">未叫</span>'}</span><span style="color:${v>=0?'#0a7':'#c00'}">${v>=0?'+':''}${v} 番</span></div>`;}
+  side+=`</div><div class="scoreSummary">${scoreSummaryHtml()}</div>`;
+  const rBtns=`<div class="rBtns"><button class="gray" onclick="closeResult()">再来一局</button></div>`;
+  setResultBox(`<h2>荒庄</h2><div class="rMain">${main}</div><div class="rSide">${side}</div>`+rBtns);
+  openResult();
+  peekTable();   // 结算**直接**收在角落：四家手牌当场全露出来（不再需要「看四家亮牌」按钮）
+}
+
+// 累计积分表（结算弹窗用）
+function scoreSummaryHtml(){
+  return `<div class="line" style="font-weight:700"><span>累计积分</span><span>总分</span></div>`
+    +NAMES.map((n,p)=>{
+      const v=G.scores[p];
+      return `<div class="line"><span>${p===PLAYER?'<b>'+n+'</b>':n}</span><span style="color:${v>0?'#0a7':v<0?'#c00':'#666'};font-weight:700">${v>0?'+':''}${v}</span></div>`;
+    }).join('');
+}
+// 结算窗内容统一加装：右上角「×」+ 收起后的操作说明。
+// （收起提示原来是个浮层伪元素，位置固定，会压在自己的手牌上；放进窗内最稳。）
+function setResultBox(inner){
+  document.getElementById('resultBox').innerHTML=
+    `<button class="xBtn" type="button" aria-label="关闭" onclick="hideResult()">×</button>`
+    +inner
+    +`<div class="peekHint">点窗体看明细（再点窗外的空白处收回角落）· 点右上角「×」关掉</div>`;
+}
+// 打开结算窗（展开态）并安排 3.2 秒后自动收起，不挡着看牌
+function openResult(){
+  const r=document.getElementById('result');
+  if(!r||!r.style)return;
+  if(r.classList)r.classList.remove('peekMode');
+  r.style.display='flex';
+  if(document.body&&document.body.classList)document.body.classList.add('isResult');
+  syncReopenBtn();
+  clearTimeout(showResult._t);
+  // ⚠️ 这里**故意没有**"N 秒后自动收起"的定时器。
+  //    老版本展开了 3.2 秒就自己缩回角落 —— 用户正在看明细时窗体自己跑掉，
+  //    实测反馈就是"点开放大了，怎么又自动缩回去了"。
+  //    现在只在**用户自己动作**时改变状态：点窗体/「本局详情」= 展开；点窗外空白处或「×」= 收起/关闭。
+}
+function showResult(res){
+  const patName=res.pat?res.pat.name:'平胡';
+  // 标题（h2）单独放，不塞进 rMain：横屏时它独占一整行当"表头"，
+  // 右上角的「×」才有属于自己的高度，不会压到下面两栏的文字。
+  const title=`<h2>${res.winner===PLAYER?'你胡了！':NAMES[res.winner]+'胡了'}</h2>`;
+  // 内容拆成两段：rMain=这局怎么胡的，rSide=得分+累计积分+操作按钮。
+  // 竖屏上下排（原来的样子），横屏自动变左右两栏 —— 400px 高的横屏放不下
+  // 竖排的 546px 内容，底部按钮要滚动才够得到（见 CSS ③ 档）。
+  let main=`<div class="line" style="justify-content:center"><span style="background:#0b3d2e;color:#ffd700;padding:3px 12px;border-radius:10px;font-weight:700">${patName} · ${res.pat?res.pat.fan:1} 番</span></div>`;
+  res.lines.forEach(l=>main+=`<div class="line"><span>${l}</span></div>`);
+  let side=`<div class="rScores">`;
+  for(let p=0;p<4;p++){const v=res.total[p];side+=`<div class="line"><span>${NAMES[p]}<span style="color:#aaa;font-size:11px"> 本局</span></span><span style="color:${v>=0?'#0a7':'#c00'}">${v>=0?'+':''}${v} 番</span></div>`;}
+  side+=`</div><div class="scoreSummary">${scoreSummaryHtml()}</div>`;
+  // 完局后三家手牌已亮正面；这里给一个「点牌桌看牌」的入口，
+  // 点一下把结算窗缩到角落，四家手牌一览无遗。
+  // 完局后把**牌墙里没摸到的牌**也全部翻开（用户要求）：
+  // 按 万→条→筒 理好、用最小的牌面紧凑排开，让玩家知道这局还剩哪些没出来。
+  // ⚠️ 它是**结算窗的独立一块**（直接挂在 .box 下、flex:1 1 100%）：竖屏是最后一行；
+  //    横屏 .box 是两栏，靠 flex-wrap + 100% 让墙牌独占第二行 —— 塞进右栏会被挤成很窄一条、
+  //    多出好几行，实测把窗体顶出 17px（超过 max-height 就滚动，等于没做）。
+  // 「再来一局」**放到最下面**（用户要求）：排在"未摸到的牌"那一块之后，独立一整块
+  // （横屏 .box 是两栏布局，不写成 100% 宽会被排成第三栏）。
+  const rBtns=`<div class="rBtns"><button class="gray" onclick="closeResult()">再来一局</button></div>`;
+  const wallSorted=(G.wall||[]).slice().sort((a,b)=>a-b);
+  const wallBlock=`<div class="rWall"><div class="rWallT">未摸到的牌 · ${wallSorted.length} 张</div>`
+      + `<div class="rWallG">`
+      + wallSorted.map(c=>`<div class="tile w">${tileFace(c)}</div>`).join('')
+      + `</div></div>`;
+  SFX.play('settle',{delay:1.1});   // 结算窗的音：落在胡牌长音的尾巴上，不和它糊在一起
+  setResultBox(title+`<div class="rMain">${main}</div><div class="rSide">${side}</div>`+wallBlock+rBtns);
+  openResult();
+  peekTable();   // 结算**直接**收在角落：四家手牌当场全露出来（不再需要「看四家亮牌」按钮）
+}
+// 把结算窗缩到角落（不遮牌桌），此时可以直接看四家的亮牌
+function peekTable(){
+  const r=document.getElementById('result');
+  if(!r||r.style.display==='none')return;
+  clearTimeout(showResult._t);       // 手动收起后别再被定时器打扰
+  r.classList.add('peekMode');
+  syncReopenBtn();
+}
+// 关闭结算窗：回到牌桌看牌，牌桌上的手牌仍是亮着的；
+// 右上角留一个「本局详情」药丸，随时能把结算数据叫回来（旧版关掉就再也看不到了）
+function hideResult(){
+  const r=document.getElementById('result');
+  if(r){r.style.display='none';r.classList.remove('peekMode');}
+  SFX.play('tap');
+  if(document.body&&document.body.classList)document.body.classList.remove('isResult');
+  syncReopenBtn();
+}
+function reopenResult(){
+  if(G.phase!=='over')return;
+  // ⚠️ 必须先 openResult()：点过右上角「×」之后窗体的 display 是 none，
+  //    而 expandResult() 只负责去掉 peekMode（收起态→展开），**不会**把它重新显示出来 ——
+  //    少这一步就会出现"关掉后再点「本局详情」弹不出来"（用户实测反馈）。
+  openResult();
+  expandResult();
+}
+/* 展开结算窗（点收起态的窗体、或点「本局详情」都走这里）：
+   展开 3.2 秒后自动收回角落 —— 别一直挡着牌桌。 */
+function expandResult(){
+  const r=document.getElementById('result');
+  if(!r)return;
+  // 保险：单独调用时若窗体是关着的，先把它显示出来
+  if(r.style&&r.style.display==='none')openResult();
+  SFX.play('tap');
+  if(r.classList)r.classList.remove('peekMode');
+  syncReopenBtn();
+  clearTimeout(showResult._t);
+  // ⚠️ 这里**故意没有**"N 秒后自动收起"的定时器。
+  //    老版本展开了 3.2 秒就自己缩回角落 —— 用户正在看明细时窗体自己跑掉，
+  //    实测反馈就是"点开放大了，怎么又自动缩回去了"。
+  //    现在只在**用户自己动作**时改变状态：点窗体/「本局详情」= 展开；点窗外空白处或「×」= 收起/关闭。
+}
+function syncReopenBtn(){
+  const box=document.getElementById('endBtns');
+  const r=document.getElementById('result');
+  if(!box||!r||!box.classList)return;
+  // 「本局详情」+「再来一局」一起出现/消失：结算窗收起或关掉之后，用户要能直接开下一局，
+  // 而不是先点「本局详情」再找按钮（实测有人以为得刷新页面）。
+  const show=(G.phase==='over'&&r.style.display==='none');
+  box.classList.toggle('on',show);
+  // 位置落在"操作条那一层"（手牌正上方），高度由 syncLayout 算进 --reserve。
+  // 这里**必须**补一次 syncLayout：预留高度要跟着按钮出现/消失重算，
+  // 否则按钮会压住牌桌的弃牌区，或者关掉后底部白留一条。
+  try{ syncLayout(); }catch(e){}
+}
+// 点遮罩（弹窗外的空白）：展开态 → 先收起到角落看牌；已在角落 → 完全关闭。
+// 用 onclick 赋值 + 存在性判断，不用 addEventListener：
+// 测试沙箱（Node vm）里的 DOM 桩没有 addEventListener，硬调会在加载期直接抛错。
+function onResultMaskClick(e){
+  const r=document.getElementById('result');
+  if(!r||!e||!e.target||e.target.id!=='result')return;
+  // 只在**展开态**响应：点窗外的空白 → 收回到角落（回到"四家亮牌"那个视图）。
+  // 收起态点空白**什么都不做** —— 用户明确要求过："误触空白就把结算窗关掉，
+  // 反而让人以为没地方开下一局"。要关闭请点右上角「×」（关掉后底部还有两个按钮）。
+  if(r.classList&&r.classList.contains('peekMode'))return;
+  SFX.play('tap');
+  peekTable();
+}
+const _resEl=document.getElementById('result');
+/* 点结算窗外的空白（**绑定见下面这段**）：
+   · 展开态 → 收起到角落。这个动作原来是窗内的「👁 看四家亮牌」按钮，
+     那个按钮按用户要求删除后，展开态就再没有回到角落的入口了，由这里接管；
+   · 收起态 → 不响应（用户要求：误触空白把结算窗关掉会让人以为"没地方开下一局"）。
+   存在性判断不能用 addEventListener 的写法已过时，这里两种都兜住。 */
+if(_resEl&&typeof _resEl.addEventListener==='function'){
+  _resEl.addEventListener('click',onResultMaskClick);
+}else if(_resEl){
+  _resEl.onclick=onResultMaskClick;
+}
+{ const _rb=document.getElementById('reopen');
+if(_rb&&_rb.style)_rb.onclick=()=>{SFX.play('tap');reopenResult();};
+/* 收起态下点窗体本身 → 展开看明细（按钮除外，避免误把「再来一局」变成展开）。
+   存在性判断不能用 addEventListener：Node 端 DOM 桩没有它，硬调会在加载期抛错。 */
+const _resBox=document.getElementById('resultBox');
+if(_resBox)_resBox.onclick=function(e){
+  const r=document.getElementById('result');
+  if(!r||!r.classList||!r.classList.contains('peekMode'))return;
+  const t=e&&e.target;
+  if(t&&(t.tagName==='BUTTON'||(t.closest&&t.closest('button'))))return;
+  if(e&&e.stopPropagation)e.stopPropagation();
+  expandResult();
+};
+const _ab=document.getElementById('againBtn');
+if(_ab&&_ab.style)_ab.onclick=closeResult; }   // closeResult 就是 newGame()：直接开下一局
+function closeResult(){newGame();}
+
+// ===== SVG 牌面绘制（对齐真实麻将牌）=====
+// 真牌观感的三条硬指标：
+//   1) 万：粗黑体汉字，数字占上半、[萬]占下半且笔画粗重、几乎顶满牌宽
+//   2) 条：竹条有【立体圆柱感】—— 中间一道纵向高光 + 两侧暗边 + 两端深色竹节环
+//   3) 筒：同心圆"饼"有【体积】—— 由外向内 深色环 → 亮色环 → 深色芯 → 高光点
+// 所有牌共用一个 <defs>：纸张渐变、描边、筒/条的配色渐变，避免逐帧重复定义。
+const WAN_CN=['一','二','三','四','五','六','七','八','九'];
+
+// 主色（取真牌经典配色：朱红 / 靛蓝 / 竹青）
+const C_RED='#b81c26', C_BLUE='#17458c', C_GREEN='#146b34';
+// 每色的 亮 / 中 / 暗 三阶，用于做圆柱与圆饼的立体渐变
+const SHADE={
+  [C_RED]:  {hi:'#f0757e', mid:'#c9242f', lo:'#7e1119', edge:'#5e0c12'},
+  [C_BLUE]: {hi:'#7ba6e8', mid:'#1d55ad', lo:'#0e3170', edge:'#0a2454'},
+  [C_GREEN]:{hi:'#6dc487', mid:'#17803c', lo:'#0a4a22', edge:'#063316'},
+};
+const sh=c=>SHADE[c]||SHADE[C_GREEN];
+// 纸张（牌面底色）—— 真牌是暖白象牙色，不是纯白
+const PAPER='#f7f2e4', PAPER_HI='#fffdf6', PAPER_LO='#e6dcc4';
+// 共用的渐变/滤镜定义。id 带前缀 fs- 避免和页面其它 SVG 冲突。
+function faceDefs(){
+  let d='<defs>';
+  // 牌面纸底：左上受光、右下微暗
+  d+=`<linearGradient id="fs-paper" x1="0" y1="0" x2="0.55" y2="1">`
+    +`<stop offset="0" stop-color="${PAPER_HI}"/><stop offset="0.5" stop-color="${PAPER}"/>`
+    +`<stop offset="1" stop-color="${PAPER_LO}"/></linearGradient>`;
+  // 竹条横向渐变：左暗 → 中亮 → 右暗（圆柱感的关键，直接在渐变里做，省一堆叠加矩形）
+  for(const c of [C_GREEN,C_RED]){
+    const s=sh(c);
+    d+=`<linearGradient id="fs-cyl-${c.slice(1)}" x1="0" y1="0" x2="1" y2="0">`
+      +`<stop offset="0" stop-color="${s.lo}"/><stop offset="0.18" stop-color="${s.mid}"/>`
+      +`<stop offset="0.42" stop-color="${s.hi}"/><stop offset="0.62" stop-color="${s.mid}"/>`
+      +`<stop offset="1" stop-color="${s.edge}"/></linearGradient>`;
+  }
+  // 筒"饼"径向渐变：中心亮、外周暗，制造球面凸起
+  for(const c of [C_GREEN,C_RED,C_BLUE]){
+    const s=sh(c);
+    d+=`<radialGradient id="fs-dot-${c.slice(1)}" cx="0.36" cy="0.32" r="0.75">`
+      +`<stop offset="0" stop-color="${s.hi}"/><stop offset="0.45" stop-color="${s.mid}"/>`
+      +`<stop offset="1" stop-color="${s.lo}"/></radialGradient>`;
+  }
+  d+='</defs>';
+  return d;
+}
+const cylFill=c=>`url(#fs-cyl-${c.slice(1)})`;
+const dotFill=c=>`url(#fs-dot-${c.slice(1)})`;
+
+// --- 筒子：位置按真牌布局（归一化 0~1）---
+// 依 Wikipedia《Mahjong tiles》+ 快懂百科 + owiki 三方一致的权威规范：
+//   1筒=大圆饼  2筒=绿+蓝
+//   3筒=绿/红/蓝各一枚，斜向排列
+//   4筒=两蓝两绿，排成矩形，同色在相对角
+//   5筒=四角 + 中心（中心红）
+//   6筒=上两绿 + 下四红（绿红之间留空隙）
+//   7筒=同6筒结构，但上三枚绿沿「左上→右下」斜排
+//   8筒=八个蓝圆，2×4 矩形
+//   9筒=绿/红/蓝各三枚，各占一行，【中间一行必为红】
+const DOTS={
+  1:[[.5,.5]],
+  2:[[.5,.26],[.5,.74]],                    // 二筒：上下各一（上绿下蓝）
+  3:[[.25,.25],[.5,.5],[.75,.75]],          // 三筒：绿→红→蓝 斜向
+  4:[[.28,.30],[.72,.30],[.28,.70],[.72,.70]], // 四筒：同色在相对角
+  5:[[.25,.24],[.75,.24],[.5,.5],[.25,.76],[.75,.76]], // 五筒：四角 + 中心红
+  6:[[.30,.19],[.70,.19],[.28,.62],[.72,.62],[.28,.82],[.72,.82]], // 六筒：上2绿 + 下4红（中留空）
+  7:[[.30,.19],[.28,.62],[.72,.62],[.28,.84],[.72,.84],[.5,.42]],  // 七筒：见下方重排
+  9:[[.22,.22],[.5,.22],[.78,.22],[.22,.50],[.5,.50],[.78,.50],[.22,.78],[.5,.78],[.78,.78]], // 九筒：3×3 三行分色
+};
+// 六筒真牌：上 2 绿为一「横排」，下 4 红为 2×2；真牌绿红之间明显留空隙
+DOTS[6]=[[.32,.18],[.68,.18],[.27,.60],[.73,.60],[.27,.83],[.73,.83]];
+// 七筒真牌（别称「手枪、水烟袋」）：上排 3 枚沿「左上→右下」平缓斜置（约30°），
+// 下排 4 枚 2×2 平放。整体呈"斜挂 + 平铺"，不是陡峭的一条斜线。
+// 七筒标准图样（依 flat_tiles/7p-7筒.svg）：上排 3 枚绿的沿左上→右下斜置，
+// 下排 4 枚**红色**的 2×2 平铺（用户指出："7筒的下四个圆应该是红色"）。
+// 行列坐标与 8筒 对齐（同一组列位 0.3425 / 0.6575），整副筒子看起来才是一套。
+DOTS[7]=[[.2593,.2733],[.50,.3267],[.7411,.38],
+         [.3425,.5933],[.6575,.5933],[.3425,.7933],[.6575,.7933]];
+// 八筒真牌：八个蓝圆，2×4 矩形（两列各 4）
+// 八筒标准图样：2 列 × 4 行蓝圆（列位 0.3425/0.6575，行距 0.20）。
+// ⚠️ 旧的 4 行挤在 0.34~0.79 之间（行距 7.5px）而圆直径有 10.2px → 上下圆**互相重叠**，
+//    整列糊成一条波浪；旁边 6筒/9筒 的圆又大又清，摆在一起就不协调（用户反馈"8筒变形"）。
+//    现在行距 10px > 直径，留出窄缝，同行同列间距一致。
+DOTS[8]=[[.3425,.20],[.3425,.40],[.3425,.60],[.3425,.80],
+         [.6575,.20],[.6575,.40],[.6575,.60],[.6575,.80]];
+// 筒子配色（严格依真牌规范）
+function bingColor(n,i){
+  if(n===1)return C_RED;                                    // 一筒：整枚大红花
+  if(n===2)return [C_GREEN,C_BLUE][i];                      // 二筒：上绿下蓝
+  if(n===3)return [C_GREEN,C_RED,C_BLUE][i];                // 三筒：绿、红、蓝 各一枚（斜向）
+  if(n===4)return [C_BLUE,C_GREEN,C_GREEN,C_BLUE][i];       // 四筒：同色在相对角（左蓝/对角绿）
+  if(n===5){return [C_BLUE,C_BLUE,C_RED,C_BLUE,C_BLUE][i];}  // 五筒：四角蓝 + 中心红
+  if(n===6)return [C_GREEN,C_GREEN,C_RED,C_RED,C_RED,C_RED][i]; // 六筒：上 2 绿、下 4 红
+  if(n===7)return i<3?C_GREEN:C_RED;                        // 七筒：上 3 绿、**下 4 红**（标准图样）
+  if(n===8)return C_BLUE;                                   // 八筒：八蓝
+  // 九筒：绿/红/蓝 各三枚，各占一行，中间一行必为红
+  return [C_BLUE,C_BLUE,C_BLUE,C_RED,C_RED,C_RED,C_GREEN,C_GREEN,C_GREEN][i];
+}
+// 一枚筒（"饼"）：真牌是四层同心结构，靠径向渐变做出球面凸起
+//   ① 深色外环  ② 亮色环  ③ 同色内芯  ④ 左上高光点
+// 一枚筒（"饼"）：真牌是「铜钱」造型 —— 实心同色圆盘 + 内部一圈白环 + 中心小圆点。
+// 依实物图样的层次（由外到内）：
+//   ① 最深色描边（1px 轮廓）
+//   ② 同色实心盘（径向渐变做出球面凸起）
+//   ③ 白色粗内环（真牌最醒目的特征，像铜钱方孔外的白圈）
+//   ④ 中心同色小圆点（很小、很实）
+//   ⑤ 左上角一点高光
+function dot(x,y,r,col){
+  const s=sh(col);
+  const f=(v)=>v.toFixed(2);
+  return ``
+    +`<circle cx="${f(x)}" cy="${f(y)}" r="${f(r)}" fill="${s.edge}"/>`
+    +`<circle cx="${f(x)}" cy="${f(y)}" r="${f(r*0.92)}" fill="${dotFill(col)}"/>`
+    // 白环要粗：内径 0.66、外径 0.46 → 环带宽度约 0.20r
+    +`<circle cx="${f(x)}" cy="${f(y)}" r="${f(r*0.66)}" fill="${PAPER_HI}"/>`
+    +`<circle cx="${f(x)}" cy="${f(y)}" r="${f(r*0.46)}" fill="${dotFill(col)}"/>`
+    +`<circle cx="${f(x-r*0.12)}" cy="${f(y-r*0.12)}" r="${f(r*0.12)}" fill="#fff" opacity="0.7"/>`;
+}
+function svgBing(n){
+  let out='';
+  const W=36,H=50;
+  if(n===1){
+    // 一筒：一枚占满牌面的大圆饼。真牌特征：
+    //   外圈一道同色粗环 + 放射状花瓣（小型锯齿）+ 中心一朵「花心」（白环 + 红芯 + 白点）
+    const x=18,y=25,R=12.6,s=sh(C_RED),f=v=>v.toFixed(2);
+    // ① 最外描边
+    out+=`<circle cx="${x}" cy="${y}" r="${f(R)}" fill="${s.edge}"/>`;
+    out+=`<circle cx="${x}" cy="${y}" r="${f(R*0.94)}" fill="${dotFill(C_RED)}"/>`;
+    // ② 放射状花瓣（真牌一筒外圈的锯齿状花瓣）
+    for(let k=0;k<20;k++){
+      const a=k*Math.PI/10;
+      out+=`<rect x="${f(x-0.62)}" y="${f(y-R*0.92)}" width="1.24" height="${f(R*0.20)}" rx="0.62"`
+        +` fill="${s.edge}" opacity="0.9" transform="rotate(${(a*180/Math.PI).toFixed(1)} ${x} ${y})"/>`;
+    }
+    // ③ 大白色内环（花盘）
+    out+=`<circle cx="${x}" cy="${y}" r="${f(R*0.74)}" fill="${PAPER_HI}"/>`;
+    // ④ 内圈红盘
+    out+=`<circle cx="${x}" cy="${y}" r="${f(R*0.56)}" fill="${dotFill(C_RED)}"/>`;
+    // ⑤ 中心白芯 + 红点（花心）
+    out+=`<circle cx="${x}" cy="${y}" r="${f(R*0.30)}" fill="${PAPER_HI}"/>`;
+    out+=`<circle cx="${x}" cy="${y}" r="${f(R*0.15)}" fill="${dotFill(C_RED)}"/>`;
+    out+=`<circle cx="${f(x-R*0.10)}" cy="${f(y-R*0.10)}" r="${f(R*0.12)}" fill="#fff" opacity="0.85"/>`;
+    return out;
+  }
+  const pts=DOTS[n];
+  // 半径按真牌校准：圆点必须够大够实，行/列之间只留窄缝（真牌是"挤满"的观感）
+  // 半径照标准图样校准：1~4筒 最大，5/6筒 次之，7筒 4.7、8筒 4.35（它俩圆最多、必须小一号，
+  // 否则行距不够会叠在一起；8筒 直径 8.7 < 行距 10，正好留缝），9筒 3×3 可以回到 4.9。
+  // 7筒/8筒 同为 4.7：它俩的下排 4 枚用的是**同一个 2×4 网格**（列 0.3425/0.6575、行距 10），
+  // 半径一致才像一副牌；行距 10 > 直径 9.4，仍留 0.6 缝（不会重叠）。
+  // （原来 8筒 取 4.35，比 7筒 小一圈 → 用户反馈 8个圆好像小了点。）
+  const r=n<=2?8.2:n<=4?6.9:n<=6?6.0:(n===7||n===8)?4.7:4.9;
+  pts.forEach((p,i)=>{out+=dot(p[0]*W,p[1]*H,r,bingColor(n,i));});
+  return out;
+}
+// 条子配色：真牌以竹青为主。
+// 依 Wikipedia：五条「中间那根」红、七条「最上一根」红、九条「中间一列」红。
+// 注意九条是 3×3 布局（索引按行优先 0..8），「中间一列」= 索引 1/4/7，不是中间一行。
+function tiaoColor(n,i){
+  if(n===5&&i===2)return C_RED;                 // 五条：中心一根红
+  if(n===7&&i===0)return C_RED;                 // 七条：最上一根红
+  if(n===9&&(i===1||i===4||i===7))return C_RED; // 九条：中间一列红
+  return C_GREEN;
+}
+// 一根竹条。真牌竹条的标志性特征（对齐中式/日式实物图样）：
+//   ① 两端各有一个「球状凸节」—— 端头比中段更宽更圆（像骨头/哑铃的两端，
+//      但中段不是细的，而是等宽的柱体）—— 这是真牌最好认的特征
+//   ② 中段中央有一道「横向竹节纹」（两条短弧线组成"眉毛"状）
+//   ③ 中央有一条纵向的长条剖面（浅色内芯），把竹条"剖开"的感觉
+//   ④ 整体是饱满柱体，不是平收口的竹竿
+function stick(x,y,len,color,angle){
+  const f=v=>v.toFixed(2);
+  const s=sh(color);
+  // 柱身宽：默认按长度推（长条更粗），但 8条 的 8 根必须**同宽**，
+  // 否则它内部就有粗有细、和别的条子也不搭 —— 所以允许调用方显式指定。
+  // 🔴 柱身宽**固定 4.5**，不再按长度推（原来 max(4.4, len*0.36)）：
+  //    2条 的条子长 17.5 → 宽被算成 **6.3**，比 7条/9条 的 4.4 粗 43%，一眼就不协调；
+  //    8条 也偏粗（4.6）。真牌里同一副牌所有竹条**同宽**，这里统一成多数牌用的 4.5。
+  const w=(arguments.length>5&&arguments[5])?arguments[5]:4.5;
+  const hw=w/2, h=len/2;
+  const kR=w*0.55;                     // 端部球节的半径（比柱身宽）
+  let o='';
+  // ① 柱身（等宽圆角矩形）
+  o+='<rect x="'+f(x-hw)+'" y="'+f(y-h+kR*0.5)+'" width="'+f(w)+'" height="'+f(len-kR)+'" fill="'+cylFill(color)+'"/>';
+  // ② 上下端球节（比柱身宽，形成"两次收腰"的标志形状）
+  o+='<circle cx="'+f(x)+'" cy="'+f(y-h+kR*0.5)+'" r="'+f(kR)+'" fill="'+cylFill(color)+'"/>';
+  o+='<circle cx="'+f(x)+'" cy="'+f(y+h-kR*0.5)+'" r="'+f(kR)+'" fill="'+cylFill(color)+'"/>';
+  // ③ 中央纵向剖面（浅色内芯长条，两端圆头）
+  const iw=w*0.30, ih=len*0.52;
+  o+='<rect x="'+f(x-iw/2)+'" y="'+f(y-ih/2)+'" width="'+f(iw)+'" height="'+f(ih)+'" rx="'+f(iw/2)+'" fill="'+s.hi+'" opacity="0.95"/>';
+  // ④ 中段横向竹节纹（两道短弧，真牌的"眉毛"）
+  const my=y-len*0.03, mw=w*0.30;
+  o+='<path d="M '+f(x-mw)+' '+f(my)+' q '+f(mw)+' '+f(-w*0.22)+' '+f(mw*2)+' 0"'
+    +' stroke="'+s.lo+'" stroke-width="'+f(Math.max(0.5,w*0.11))+'" fill="none" stroke-linecap="round"/>';
+  // ⑤ 整体高光（左缘纵向）
+  o+='<rect x="'+f(x-hw*0.86)+'" y="'+f(y-h*0.62)+'" width="'+f(w*0.16)+'" height="'+f(len*0.5)+'" rx="'+f(w*0.08)+'" fill="#fff" opacity="0.30"/>';
+  // ⑥ 右缘暗边
+  o+='<rect x="'+f(x+hw*0.70)+'" y="'+f(y-h*0.60)+'" width="'+f(w*0.16)+'" height="'+f(len*0.52)+'" rx="'+f(w*0.08)+'" fill="'+s.lo+'" opacity="0.45"/>';
+  if(angle) return '<g transform="rotate('+f(angle)+' '+f(x)+' '+f(y)+')">'+o+'</g>';
+  return o;
+}
+// 一条（幺鸡）：真牌是一只站在竹枝上的鸟
+// 一条（幺鸡）：真牌是一只侧身站立的雀鸟 —— 圆头、尖喙、饱满的胸腹、
+// 上翘的尾羽、细腿抓住竹枝。朝向：头在右上、尾在左下（真牌通用朝向）。
+function svgTiao1(){
+  const f=v=>v.toFixed(2);
+  // 配色（真牌幺鸡：绿身 + 浅绿腹 + 红冠 + 黄喙 + 黑眼）
+  const BODY='#1a7a3c', BELLY='#4fae68', WING='#63c07c',
+        DARK='#0b4420', BEAK='#e9a400', CREST='#b81c26';
+  let o='';
+  // ① 竹枝（斜置的横枝）+ 两片叶
+  o+=`<path d="M5 46.5 Q18 42.5 31.5 46" stroke="#146b34" stroke-width="2.4" fill="none" stroke-linecap="round"/>`;
+  o+=`<path d="M10.5 45.2 q-3.2 -4.6 -6.4 -6.0 q3.6 0.3 7.6 3.6z" fill="#2b8a4a"/>`;
+  o+=`<path d="M25.5 45.2 q3.2 -4.6 6.4 -6.0 q-3.6 0.3 -7.6 3.6z" fill="#2b8a4a"/>`;
+  // ② 尾羽（从左下向外翘起，末端尖）
+  o+=`<path d="M14.6 33.4 Q7.8 38.6 6.2 44.2 Q9.4 43.0 12.0 39.6 Q14.2 36.6 15.6 34.6 Z" fill="${DARK}"/>`;
+  // ③ 身体（饱满的蛋形，略向右倾）
+  o+=`<path d="M18.4 21.4 C24.0 21.4 26.6 26.6 25.6 32.2 C24.8 37.0 21.4 39.6 17.8 39.4 C13.4 39.2 11.4 35.4 12.0 30.4 C12.6 25.2 14.4 21.4 18.4 21.4 Z" fill="${BODY}"/>`;
+  // ④ 腹部浅色块
+  o+=`<path d="M19.0 25.6 C22.6 25.8 23.6 29.8 22.8 33.6 C22.0 36.8 19.4 38.4 17.2 37.8 C15.2 37.2 14.4 34.2 15.0 30.8 C15.6 27.4 16.6 25.6 19.0 25.6 Z" fill="${BELLY}"/>`;
+  // ⑤ 翅膀
+  o+=`<path d="M15.0 24.6 C20.4 25.0 22.4 29.6 20.6 33.6 C17.6 33.4 14.8 30.6 14.2 27.0 C14.0 25.6 14.2 24.8 15.0 24.6 Z" fill="${WING}"/>`;
+  o+=`<path d="M15.6 26.6 C18.6 27.6 20.0 30.2 19.8 32.2" stroke="${DARK}" stroke-width="0.5" fill="none" opacity="0.5"/>`;
+  // ⑥ 头（圆形，位于右上）
+  o+=`<circle cx="21.6" cy="15.8" r="5.6" fill="${BODY}"/>`;
+  // ⑦ 头顶红冠（真牌标志性的红色鸡冠）
+  o+=`<path d="M19.2 10.4 C19.0 7.6 20.8 5.8 22.6 6.6 C24.4 7.4 24.0 9.4 23.0 10.2 C22.4 8.8 21.0 8.6 20.4 10.6 Z" fill="${CREST}"/>`;
+  // ⑧ 眼（白眶 + 黑瞳 + 高光）
+  o+=`<circle cx="19.6" cy="14.6" r="1.85" fill="#fff"/>`;
+  o+=`<circle cx="19.4" cy="14.6" r="1.0" fill="#0b0b0b"/>`;
+  o+=`<circle cx="19.1" cy="14.2" r="0.34" fill="#fff"/>`;
+  // ⑨ 喙（右上方的尖锥，与头部相连）
+  o+=`<path d="M25.6 13.6 L31.4 15.4 L25.4 17.0 Z" fill="${BEAK}"/>`;
+  o+=`<path d="M25.6 15.4 L31.4 15.4" stroke="#b88000" stroke-width="0.4" opacity="0.8"/>`;
+  // ⑩ 腿 + 爪（抓住竹枝）
+  o+=`<path d="M17.4 38.8 L16.6 43.4" stroke="${BEAK}" stroke-width="1.25" stroke-linecap="round"/>`;
+  o+=`<path d="M20.0 38.6 L19.8 43.2" stroke="${BEAK}" stroke-width="1.25" stroke-linecap="round"/>`;
+  o+=`<path d="M14.6 43.6 L16.6 43.4 L18.2 44.0" stroke="${BEAK}" stroke-width="0.9" fill="none" stroke-linecap="round"/>`;
+  o+=`<path d="M18.0 43.4 L19.8 43.2 L21.4 43.8" stroke="${BEAK}" stroke-width="0.9" fill="none" stroke-linecap="round"/>`;
+  return o;
+}
+function svgTiao(n){
+  let out='';
+  if(n===1)return svgTiao1();
+  if(n===8)return svgTiao8();
+  const pos=TIAO_POS[n];
+  // 竹条长度按真牌分级：
+  //   二条「中间长条」→ 最长；三条/四条「细条」→ 中等；
+  //   五条「三列条子、中间最短」→ 中列单独缩短；九条「条子变短，如同落大雨」→ 最短
+  const len=n===2?17.5:n<=4?13.5:n<=6?12.5:n===7?11:9.4;
+  pos.forEach((p,i)=>{
+    let L=len;
+    if(n===5&&i===2)L=len*0.66;            // 五条中心那根最短
+    if(n===9)L=8.4;                        // 九条整体最短
+    out+=stick(p[0]*36,p[1]*50,L,tiaoColor(n,i));
+  });
+  return out;
+}
+// --- 条子：位置（归一化）---
+// 条子排布（依《麻雀牌》记载的真牌规范）：
+//   「二条、四条、五条、九条跟与它数字相同的筒子相似」
+//   「三条则排成上一下二之形；六条为上三下三之形」
+//   「七条分三行，上方一条，中间和下方皆为三条」
+//   「八条最为特别：顶部四条为倒 M 形、底部四条为 M 形」
+// 条子排布 —— 严格对齐真牌实物图样（逐张核对）：
+//   2条：上下两根竖排（中间留大缺口），不是左右并列
+//   3条：上 1 居中、下 2 并列
+//   4条：上 2、下 2（四根都竖）
+//   5条：上 2 + 中心 1（红）+ 下 2
+//   6条：上 3、下 3
+//   7条：上 1（红）、中 3、下 3
+//   8条：上 4 + 下 4，两两交叉成 X 形（见 TIAO8）
+//   9条：3×3，中间一列红
+const TIAO_POS={
+  // 二条：上下两根竖排
+  2:[[.50,.28],[.50,.74]],
+  // 三条：上 1 下 2
+  3:[[.50,.22],[.28,.74],[.72,.74]],
+  // 四条：上 2 下 2
+  4:[[.30,.26],[.70,.26],[.30,.74],[.70,.74]],
+  // 五条：上 2 + 中心红 + 下 2
+  5:[[.26,.24],[.74,.24],[.50,.50],[.26,.76],[.74,.76]],
+  // 六条：上 3 下 3
+  6:[[.25,.28],[.50,.28],[.75,.28],[.25,.74],[.50,.74],[.75,.74]],
+  // 七条：上 1（红）+ 中 3 + 下 3
+  7:[[.50,.18],[.25,.50],[.50,.50],[.75,.50],[.25,.82],[.50,.82],[.75,.82]],
+  // 九条：3×3
+  9:[[.24,.22],[.50,.22],[.76,.22],[.24,.50],[.50,.50],[.76,.50],[.24,.78],[.50,.78],[.76,.78]],
+};
+// 八条（真牌最特殊的造型，逐像素对照实物图样）：
+//   上排结构：左竖条 ─┐                        ┌─ 右竖条
+//                     └──斜棒── 中央短条 ──斜棒──┘   （形成 V + 中柱）
+//   下排结构：上下镜像（中央呈 Λ + 中柱），整体看起来像「两个 H 交叠」。
+// 斜棒是「连接件」：比竖条细且短，无端部球节。
+function svgTiao8(){
+  /* 八条标准造型（依项目里 flat_tiles/8s-8条.svg 的标准图样，按 1/3 缩放进 36×50）：
+     4 根竖竹条分列左右两列（上下各一根），中间 4 根**斜棒**组成一个菱形：
+     上排两根向中间收（∩ 形），下排两根向中间收（∪ 形），
+     左右各与竖条内侧相接、形成两个「X」交点 —— 整体就是真牌的「两两交叉」。
+     ⚠️ 旧版画了"中央短竖条 + 两根细斜棒"，短竖条长度只有 6.4 而宽度被 stick() 撑到 4.4，
+        画出来是个球不是条；两根细斜棒又细又短，于是整张牌糊成一团（用户反馈"8条变形"）。
+     ⚠️ 8 根竹条**统一宽 4.6**（= 7条/9条 那档的粗细），长度 15.1/14.9 也在 2条~7条 的区间内，
+        这样它和别的条子放一起才协调。 */
+  const W=4.5;                       // 与其它条子同宽（理由见 stick 的说明）
+  let o='';
+  // ① 4 根竖条：左列 x=7、右列 x=29，上下各一根（中心 y=15 / 35，视觉长 17.67）
+  [[7,15],[29,15],[7,35],[29,35]].forEach(v=>{
+    o+=stick(v[0],v[1],15.1,C_GREEN,0,W);
+  });
+  // ② 4 根斜棒：菱形四条边。上排向中间收（+19.855° / -19.855°），下排镜像。
+  // 🔴 斜棒比竖条**略短**（13.4 vs 15.1），角度仍用标准图样的 19.855°。
+  //    原因：标准图样的条子是「空心描边」，两端互相压一点也不显；本游戏的条子是**实心圆柱**，
+  //    压在一起就是疙瘩 —— 原参数下菱形上/下顶点的两根条子端头重叠 1.2、左右交点离竖条只有 0.98，
+  //    四处都是糊的（用户："8条还是有点不协调"）。缩短后：顶点重叠降到 0.7、交点间隙升到 1.27，
+  //    菱形仍然闭合（端部球节半径 2.48 > 缝），但四处顶点清爽了。
+  const A=19.855, SL=13.4;
+  o+=stick(13.17,17,SL,C_GREEN, A,W);
+  o+=stick(22.83,17,SL,C_GREEN,-A,W);
+  o+=stick(13.17,33,SL,C_GREEN,-A,W);
+  o+=stick(22.83,33,SL,C_GREEN, A,W);
+  return o;
+}
+// 万：真牌规范（Wikipedia《Mahjong tiles》+ 中式实物）：
+//   顶部 = 中文数字，【蓝色】；底部 = 「萬」字，【红色】。
+//   字体是楷书/行书体（笔画有粗细变化，非黑体直笔）。
+//   多数牌组的「五」用「伍」而不是「五」。
+// 关键点：一/二/三 是纯横画，字面的实际墨迹只占字体行高中间一小条，
+// 所以要给它们单独放大字号并把基线往下压，否则视觉上会「上飘、下方大片留白」。
+function svgWan(n){
+  /* 🔴 万字整体偏低：用**像素扫描**量过（把牌面画进 canvas 再扫不透明像素边界；
+     SVG 的 getBBox 量到的是字体框而不是墨迹，会误判）。原状态每一张的下留白只有 1.33，
+     上留白却有 6.7~13.8 → 整块偏低 2.7~6.3 个单位，正是用户看到的
+     「文字偏靠下、上方空白多于下方」。下面按逐字实测值上移，使上下留白相等。 */
+  // 楷体优先（真牌是楷/行书），逐级回退到系统可用的衬线/黑体
+  const F="'Kaiti SC','STKaiti','KaiTi','楷体','DFKai-SB','TW-Kai','Noto Serif SC','Source Han Serif SC','Songti SC','SimSun',serif";
+  // 真牌：五万用「伍」
+  const top=(n===5)?'伍':WAN_CN[n-1];
+  const cNum='#17458c';        // 数字：蓝
+  const cWan='#b81c26';        // 「萬」：红
+  const f=v=>v.toFixed(1);
+  // 一/二/三：横画少 → 放大字号 + 基线更低，让墨迹居中
+  const bar=n<=3;
+  const nSize=bar?(n===3?25.6:27):22.6;
+  const WAN_DY=[6.25,3.67,3.34,4.42,2.67,3.59,2.92,3.92,2.67];  // 1~9万 各自上移量
+  const dy=WAN_DY[n-1]||0;
+  const nY0=bar?(n===1?24.8:n===2?24.2:24.4):f(23.0);
+  const nY=nY0-dy;
+  let out='';
+  out+=`<text x="18" y="${nY}" text-anchor="middle" font-size="${nSize}"`
+     +` font-weight="600" fill="${cNum}" font-family="${F}" stroke="${cNum}" stroke-width="0.35">${top}</text>`;
+  // [萬] 占下半部，笔画略重（基线上提，保证字身完整落在牌内不被裁切）
+  out+=`<text x="18" y="${(44.8-dy).toFixed(2)}" text-anchor="middle" font-size="22.6"`
+     +` font-weight="700" fill="${cWan}" font-family="${F}" stroke="${cWan}" stroke-width="0.55">萬</text>`;
+  return out;
+}
+// 统一包上外框 + 渐变定义（每个函数只负责画内容）
+function wrapFace(inner){
+  return `<svg viewBox="0 0 36 50" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" style="overflow:visible">`
+    +faceDefs()+inner+`</svg>`;
+}
+function tileFace(c){
+  const suit=(c/9)|0, num=c%9+1;
+  if(suit===0)return wrapFace(svgWan(num));
+  if(suit===1)return wrapFace(svgTiao(num));
+  return wrapFace(svgBing(num));
+}
+function tileEl(c,small,idx){
+  const d=document.createElement('div');d.className='tile'+(small?' small':'');
+  const corner=(idx!==undefined&&idx!==null)?`<span class="k">${idx+1}</span>`:'';
+  d.innerHTML=corner+tileFace(c);return d;
+}
+// 一副副露的 DOM（含类型标签：碰/明杠/暗杠）
+function meldEl(m,compact){
+  const wrap=document.createElement('div');wrap.className='meldWrap';
+  const g=document.createElement('div');
+  const isGang=(m.type==='gang');
+  const isAn=isGang&&m.from<0;
+  g.className='meld '+(isAn?'angang':isGang?'gang':'peng');
+  const n=isGang?4:3;
+  for(let k=0;k<n;k++)g.appendChild(tileEl(m.card,true));
+  wrap.appendChild(g);
+  if(!compact){
+    const t=document.createElement('div');
+    t.className='meldTag'+(isAn?' angang':isGang?' gang':'');
+    t.textContent=isAn?'暗杠':isGang?(m.from>=0?'明杠':'杠'):'碰';
+    wrap.appendChild(t);
+  }
+  return wrap;
+}
+// ===== 底部空间布局同步 =====
+// 手机/iPad 上原来只有一个 --hand-h（手牌高度）在飘，操作条靠它绝对定位，
+// 结果「操作条 → 弃牌区」之间的空隙没人认领：弃牌区被 flex:1 推到上半屏，
+// 牌桌中央空出一大片，而操作条正好压在弃牌区上。
+// 现在把底部三件事一次性算清楚：
+//   ① --hand-h ：手牌 + 自己副露的实测高度
+//   ② --act-h  ：悬浮操作条（有按钮时）占的高度，没有按钮就是 0
+//   ③ #table 的 --reserve 内边距 = --hand-h + --act-h
+// 这样中央牌桌的「可用高度」天然排除掉操作条，弃牌区自动填满到操作条上沿，
+// 既不重叠、也没有空白浪费。
+// 让一排牌刚好铺满一行：按可用宽度和牌数反推每张牌的宽度。
+// 手牌最多 14 张、副露最多 4 副（12~16 张），窄屏上必须缩，宽屏上又别缩过头。
+let _fitBase=null;
+function fitRow(el,opt){
+  if(!el||typeof el.getBoundingClientRect!=='function')return;
+  const kids=[...el.querySelectorAll('.tile')];
+  if(!kids.length)return;
+  const o=opt||{};
+  const ratio=o.ratio||1.36;
+  const vn=o.varName||'--tw';
+  // 自然尺寸基准：宽屏下的设计尺寸（窄屏才缩，宽屏不放大）
+  const cs=getComputedStyle(el);
+  const avail=el.clientWidth-(parseFloat(cs.paddingLeft)||0)-(parseFloat(cs.paddingRight)||0);
+  if(!avail||avail<=0)return;
+  const gap=parseFloat(cs.columnGap||cs.gap)||0;
+  const n=kids.length;
+  const totalGap=gap*(n-1);
+  // 每张牌的设计宽：优先用显式传入的 baseW（CSS 上写死的值最可靠）。
+  // ⚠️ 不要用 kids[0].style.width 当基准：上一轮我们把它写成了 "var(--tw)"，
+  //    parseFloat("var(--tw)") 恒为 NaN，会让整个缩放静默失效。
+  //    这里改为：先清掉上一轮内联的 --tw，量一次自然宽度，量完立刻还原。
+  const first=kids[0];
+  const prev=(el.style&&typeof el.style.getPropertyValue==='function')
+    ?el.style.getPropertyValue(vn):'';
+  if(el.style&&typeof el.style.removeProperty==='function')el.style.removeProperty(vn);
+  let baseW=o.baseW||0;
+  if(!baseW||!isFinite(baseW)){
+    const b=(typeof first.getBoundingClientRect==='function')?first.getBoundingClientRect():null;
+    baseW=(b&&b.width)||0;
+  }
+  if(!baseW||!isFinite(baseW))baseW=parseFloat(cs.getPropertyValue(vn))||0;
+  if(prev&&el.style&&typeof el.style.setProperty==='function')el.style.setProperty(vn,prev);
+  if(!baseW||!isFinite(baseW)||baseW<=0)return;
+  if(o.maxW&&baseW>(o.maxW))baseW=o.maxW;
+  const scale=(avail-totalGap)/(baseW*n);
+  if(!isFinite(scale)||scale<=0)return;
+  // ⚠️ 关键：不只"缩"，也要"放"。
+  // 只缩会让高分屏 / 平板 / 桌面窗口白白浪费空间（牌永远是设计尺寸）。
+  // 但放大要有两个刹车的：
+  //   ① 不超过设计尺寸的 maxGrow 倍（默认 1.3）—— 手牌不能喧宾夺主
+  //   ② 手牌高度不超过视口高的 12% —— 否则手牌会把牌桌挤成一条缝
+  // 手机上 scale 天然 <1（牌多、屏窄），这两个刹车不参与，布局与原来完全一致。
+  const grow=(o.maxGrow||1.3);
+  const hCapPx=(o.maxHPx||window.innerHeight*0.12);
+  const growLimit=Math.min(grow,Math.max(1,hCapPx/(baseW*ratio)));
+  const use=scale<=1?scale:Math.min(scale,growLimit);
+  const tw=Math.round(baseW*use*10)/10;
+  el.style.setProperty(vn,tw+'px');
+  kids.forEach(k=>{k.style.width='var('+vn+')';
+    k.style.height='calc(var('+vn+') * '+ratio+')';});
+}
+// 操作条预留高度（含上下内边距）。与 CSS 各设备档的按钮尺寸保持一致：
+// 手机竖屏 48 按钮 + 6 下内边距、横屏 46 + 3、iPad 54 + 12，再各留 2px 余量。
+// 这个值只是「量不到时的兜底」：按钮多到换行时（碰/杠/过/暗杠…），
+// 一行 56px 远远不够，会把副露和弃牌区盖住，所以优先用实测高度，见 syncLayout。
+function ACT_H(){
+  const w=window.innerWidth,h=window.innerHeight;
+  if(h<=520&&w>h)return 51;                     // 手机横屏
+  if(w>=760&&h>=560)return 68;                  // iPad
+  if(w<=520)return 56;                          // 手机竖屏
+  return 60;                                    // 桌面兜底
+}
+// 读 CSS 变量的数值（各设备档用它声明「设计尺寸上限」，见 :root 注释）
+function cssNum(el,name,fallback){
+  if(!el||typeof getComputedStyle!=='function')return fallback;
+  const v=parseFloat(getComputedStyle(el).getPropertyValue(name));
+  return (isFinite(v)&&v>0)?v:fallback;
+}
+// 读一个"里面写了 clamp()/vh"的自定义变量的**真实像素值**。
+// ⚠️ 不能用 cssNum：自定义属性不会在 getComputedStyle 里被求值，
+//    拿到的还是 "clamp(18px,7dvh,88px)" 这串文本，parseFloat 直接 NaN。
+//    办法：塞一个 height:var(--x) 的隐身元素，量它的高度。
+function cssPxVar(varName,fallback){
+  const root=document.documentElement;
+  if(!root||typeof document.createElement!=='function')return fallback;
+  const p=document.createElement('div');
+  p.style.cssText='position:absolute;left:-9999px;top:0;width:1px;height:var('+varName+',0px);visibility:hidden;pointer-events:none';
+  (document.body||root).appendChild(p);
+  const h=p.getBoundingClientRect?p.getBoundingClientRect().height:0;
+  if(p.parentNode)p.parentNode.removeChild(p);
+  return (isFinite(h)&&h>=0&&h>0)?Math.round(h*10)/10:fallback;
+}
+// 底部留白（手牌距屏幕底边的距离）。按视口尺寸缓存：每次 render 都量一次太浪费。
+let _botPadCache={key:'',val:8};
+function botPad(){
+  const key=(typeof innerWidth==='number'?innerWidth:0)+'x'+(typeof innerHeight==='number'?innerHeight:0);
+  if(_botPadCache.key===key)return _botPadCache.val;
+  const v=cssPxVar('--bot-pad',8);
+  _botPadCache={key,val:v};
+  return v;
+}
+// ===== 他家手牌背面：按实测空间自适应 =====
+// 为什么必须做这一步：对家 13 张横排、左右两家 13 张竖排。尺寸一旦写死，
+// 换一台设备（尤其是"宽而矮"的手机横屏）就会出现 13×20=260px 的竖列
+// 顶穿牌桌、压住自己的手牌与操作条。这里统一用实测可用空间反推尺寸：
+//   · 空间宽裕 → 放大到设计尺寸的 1.25 倍（大屏上他家手牌也跟着变大，
+//     不会出现"一块大桌上只有自己的牌大"）
+//   · 空间不够 → 先等比缩小，缩到 12px 下限还不够就改成"叠压"
+//     （--side-gap 变负，牌像真牌一样一张压一张），数学上保证永不溢出。
+//
+// 设计尺寸怎么拿：先摘掉上一轮写进去的内联变量，用真实元素量一次，量完立刻装回。
+// ⚠️ 不要去 parseFloat 读 --side-w 这类变量：⑤ 大屏档里它们是 calc()/clamp()，
+//    parseFloat 会得到 NaN，整个自适应就会静默失效（这里踩过一次）。
+function measureBack(hand,varNames){
+  const root=document.documentElement, style=root.style;
+  if(!hand||typeof hand.querySelector!=='function')return {w:0,h:0};
+  const prev=[];
+  varNames.forEach(n=>{
+    prev.push(style&&typeof style.getPropertyValue==='function'?style.getPropertyValue(n):'');
+    if(style&&typeof style.removeProperty==='function')style.removeProperty(n);
+  });
+  const el=hand.querySelector('.back')||hand.querySelector('.tile');
+  let w=0,h=0;
+  if(el){
+    // 🔴 必须用 offsetWidth/offsetHeight，**不能**用 getBoundingClientRect()：
+    //    左右两家的牌背带 rotate(90deg)，rect 量到的是"旋转后的外接框"，宽高会被对调
+    //    （实测把 --side-w/h 的 15×21 量成 21×15）→ 长宽比算反 → 牌背被压成 13×19 的细条。
+    //    offsetWidth/offsetHeight 是布局盒尺寸，不受 transform 影响，量的才是真实设计尺寸。
+    w=el.offsetWidth||0; h=el.offsetHeight||0;
+    if(!w||!h){
+      const r=el.getBoundingClientRect();w=r.width;h=r.height;
+    }
+  }
+  varNames.forEach((n,i)=>{
+    if(prev[i]&&style&&typeof style.setProperty==='function')style.setProperty(n,prev[i]);
+  });
+  return {w:w,h:h};
+}
+/* ===== 弃牌尺寸：跟手牌一致 =====
+   用户实测反馈"弃出去的牌比手上的小一圈"。根因是两套尺寸各自写死（手牌由 fitRow 算、
+   弃牌由各档 CSS 写死），手牌一变就对不上。这里改成**单一来源**：
+     ① 量出手牌实际尺寸，写进 --dtw/--dth（各档只用 --dt-max-w/--dt-max-h 限上限）；
+     ② 侧边牌河若因牌多而被挤得太宽（超过 --dt-budget 的比例），再逐级缩小这一侧，
+        并把结果写在该 zone 上（就近覆盖，不影响别家）。
+   ⚠️ 量尺寸要用 offsetWidth/offsetHeight：弃牌里有 rotate 的牌，rect 会把宽高对调。 */
+/* 弃牌尺寸**与手牌一致**：数值由 JS 按"手牌实测尺寸"写进 --dtw/--dth（见 fitDiscards），
+   各档只通过 --dt-max-w/--dt-max-h 限制最大值。
+   🔴 不要再逐档写死弃牌尺寸 —— 那正是"弃出去的牌比手上的小一圈"的根源（用户实测反馈）：
+      写死的数字与手牌尺寸是两套，手牌一变化就对不上。 */
+function fitDiscards(){
+  const root=document.documentElement,mh=document.getElementById('myHand');
+  if(!root||!root.style||!mh||typeof mh.querySelector!=='function')return;
+  // ===== 左右侧栏宽度先对齐 =====
+  // 名字标签里「庄 ●」只加在庄家那一侧 → 那一侧的标签更长、侧栏更宽（实测 44 vs 33.5），
+  // 于是中排整体被推偏 5px（中央信息块偏出中线）。这里先把两条侧栏撑到同宽，后面的
+  // 宽度预算（牌河/副露）才是对称的。⚠️ 先清掉上一轮的 minWidth 再量，否则会一轮轮越撑越宽。
+  if(document.querySelectorAll){
+    const sd=document.querySelectorAll('.side');
+    if(sd&&sd.length===2&&sd[0].style&&sd[1].style){
+      sd[0].style.minWidth=''; sd[1].style.minWidth='';
+      const sw=Math.max(sd[0].offsetWidth||0, sd[1].offsetWidth||0);
+      if(sw>0){sd[0].style.minWidth=sw+'px'; sd[1].style.minWidth=sw+'px';}
+    }
+  }
+  const t=mh.querySelector('.tile');if(!t)return;
+  let tw=t.offsetWidth||0, th=t.offsetHeight||0;
+  if(!tw||!th)return;
+  const capW=cssNum(root,'--dt-max-w',32), capH=cssNum(root,'--dt-max-h',43);
+  tw=Math.min(tw,capW); th=Math.min(th,capH);
+  // 侧栏副露（碰/杠）的牌尺寸：跟着手牌走（小一号）。fitSideMelds() 用它算占位盒。
+  // ===== 四家副露统一尺寸（用户反馈"每一家的副牌区比例不对"）=====
+  // 实测四家各不相同：自己 20×27、对家 14×20、左右两家 10.9×14.7，而手牌是 26×35 ——
+  // 三家副露明显偏小、彼此也不一致。这里改成**单一来源**：全部 = 手牌 × --mel-ratio，
+  // 各档只用 --mel-max-w/h 限上限，放不下时四家**一起**缩（保持彼此一致）。
+  const mCapW=cssNum(root,'--mel-max-w',24), mCapH=cssNum(root,'--mel-max-h',32);
+  const mRatio=cssNum(root,'--mel-ratio',0.85);
+  let melW=Math.min(tw*mRatio,mCapW), melH=Math.min(th*mRatio,mCapH);
+  const setMel=(w,h)=>{
+    const ww=Math.round(w*10)/10, hh=Math.round(h*10)/10;
+    root.style.setProperty('--mel-w',ww+'px');
+    root.style.setProperty('--mel-h',hh+'px');
+    root.style.setProperty('--smw',ww+'px');      // 兼容旧变量名（占位盒还在读）
+    root.style.setProperty('--smh',hh+'px');
+  };
+  // 先把牌河算完（下面的循环要用到 midRow 的真实余量），副露放到最后一起定尺寸：
+  const applyMelds=()=>{
+    // 放不下就让**副露**先让位（四家一起缩，保持彼此一致），牌河最后才缩 ——
+    // 牌河是主要信息，副露是"已完成的牌组"。
+    const rows=[document.getElementById('myMelds'),document.getElementById('topMelds'),
+                document.getElementById('leftMelds'),document.getElementById('rightMelds')];
+    const mid=document.querySelector('.midRow');
+    for(let i=0;i<14;i++){
+      setMel(melW,melH);
+      fitSideMelds();                        // 占位盒跟着变，否则量到的还是上一轮的宽度
+      let over=false;
+      rows.forEach(r=>{
+        if(!r||!r.children||!r.children.length)return;
+        if((r.scrollWidth||0)>(r.clientWidth||0)+1)over=true;
+        if((r.scrollHeight||0)>(r.clientHeight||0)+1)over=true;
+      });
+      if(mid&&typeof mid.scrollWidth==='number'&&mid.scrollWidth>mid.clientWidth+1)over=true;
+      // ⚠️ 还要盯**中央块的内部溢出**：中排用 space-between 排布，整体没溢出、
+      //    但中央列（积分板）可能已经比自己的格子宽 —— 多出来的部分就压到两侧牌河上
+      //    （实测：四家各一副露 + 18 张弃牌时，积分板左右各压 5px，而整行 scrollWidth 正好等于 clientWidth，
+      //     所以上面那一条抓不到）。中央块不吃 shrink（会被压溢出，踩过），只能让副露让位。
+      const ci=document.querySelector('.centerInfo');
+      if(ci&&typeof ci.scrollWidth==='number'&&ci.scrollWidth>ci.clientWidth+1)over=true;
+      if(!over)break;
+      if(melW*0.9<9)break;
+      melW*=0.9; melH*=0.9;
+    }
+    setMel(melW,melH);
+    fitSideMelds();
+  };
+  // 每侧牌河的宽度预算：**按中央区的实际需要反推**，而不是「桌面宽 × 固定比例」。
+  // 踩过：按比例算（0.24×400≈96px）太宽松，矮横屏下 3 列牌河直接把中央积分板压住（实测）。
+  // ⚠️ 基准必须是**稳定的桌面宽度**。曾经用 midRow.clientWidth —— 它会随牌河宽度变化
+  //    （河越宽→中央越窄→预算越小→继续缩），是个自反馈，实测把横屏的弃牌缩到 20×15。
+  const midRow=document.querySelector('.midRow');
+  const table=document.getElementById('table');
+  const W=(table&&table.clientWidth)?table.clientWidth:400;
+  let railsW=0;
+  if(document.querySelectorAll)document.querySelectorAll('.side').forEach(el=>{railsW+=(el.offsetWidth||0);});
+  const ci=document.querySelector('.centerInfo');
+  // 中央块的"需要宽度"：**不能读 offsetWidth** —— .centerInfo 现在是 flex:1（吃掉所有余量），
+  // 它的 offsetWidth 是"被拉宽后"的结果，会随窗口/牌河变化；拿它算预算会把两侧牌河
+  // 误判成"太宽"而缩掉（实测竖屏 26×35 被缩成 20×27 —— 用户看到的就是"上下家的弃牌比别人小"）。
+  // 这里改成量它**内容**需要的宽度：横排（矮横屏）= 子元素之和 + 间隙，竖排 = 最宽的子元素。
+  let infoW=88;
+  if(ci){
+    const kids=[].slice.call(ci.children||[]);
+    if(kids.length){
+      const ccs=(typeof getComputedStyle==="function")?getComputedStyle(ci):null;
+      const isRow=ccs?String(ccs.flexDirection||"row").indexOf("row")>=0:false;
+      let sum=0,max=0;
+      kids.forEach(k=>{const w=k.offsetWidth||0;sum+=w;if(w>max)max=w;});
+      infoW=(isRow?sum:max)+14;
+    }
+  }
+  const lm=document.getElementById('leftMelds'), rm=document.getElementById('rightMelds');
+  const meldsW=((lm&&lm.offsetWidth)?lm.offsetWidth:0)+((rm&&rm.offsetWidth)?rm.offsetWidth:0);
+  const gaps=4*(cssNum(midRow,'gap',4)||4)+8;                      // 左副露/左河/中/右河/右副露 之间的间隙
+  const budget=Math.max(24,(W-railsW-infoW-meldsW-gaps)/2);
+  const ratio=cssNum(root,'--dt-budget',0.21);                     // 兜底上限，防止极端窄屏
+  const cap=Math.min(budget,Math.max(24,W*ratio));
+  ['discardLeft','discardRight','discardTop','discardBottom'].forEach(id=>{
+    const z=document.getElementById(id);
+    if(!z||!z.style)return;
+    const side=(id==='discardLeft'||id==='discardRight');
+    let k=1;
+    // 清掉上一轮对齐用的 min-width 再量（不清的话量到的是被撑过的宽度 → 一轮轮压小牌河）
+    if(side&&z.style.removeProperty)z.style.removeProperty('min-width');
+    z.style.setProperty('--dtw',tw+'px');
+    z.style.setProperty('--dth',th+'px');
+    // 放不下就逐级缩小（最多 12 级 ≈ 0.37 倍）。判据直接看容器溢出：
+    //   · 侧边牌河（横躺）的**宽**受 --dt-budget 限制（太宽会挤到中央积分板）
+    //   · 上下两家牌河的**高**受各档 max-height 限制（矮横屏最容易夹到）
+    // 竖屏能放下时 k 一直是 1 → 弃牌与手牌同尺寸（用户明确要求过）。
+    for(let i=0;i<12;i++){
+      const w=Math.max(z.offsetWidth||0,z.scrollWidth||0);
+      const h=Math.max(z.offsetHeight||0,z.scrollHeight||0);
+      const overW=side?(w>cap):(w>(z.clientWidth||0)+1);
+      const overH=h>(z.clientHeight||0)+1;
+      if(!overW&&!overH)break;
+      if(tw*k<11)break;                                        // 再小就没法看了
+      k*=0.92;
+      z.style.setProperty('--dtw',Math.round(tw*k*10)/10+'px');
+      z.style.setProperty('--dth',Math.round(th*k*10)/10+'px');
+    }
+  });
+  // 硬条件：整行（副露+牌河+中央+牌河+副露）必须放得下。
+  // 只按"每侧预算"缩是不够的：中央被挤到小于 min-width 时，积分板会溢出来压住牌河
+  // （实测 14 个场景报这种遮挡）。这里直接盯**行自身的溢出**，两侧一起缩到不溢出为止。
+  const row=document.querySelector('.midRow');
+  if(row&&typeof row.scrollWidth==='number'){
+    const zL=document.getElementById('discardLeft'),zR=document.getElementById('discardRight');
+    for(let i=0;i<12;i++){
+      if(row.scrollWidth<=row.clientWidth+1)break;
+      const gL=zL&&zL.style?parseFloat(zL.style.getPropertyValue('--dtw')):0;
+      const gR=zR&&zR.style?parseFloat(zR.style.getPropertyValue('--dtw')):0;
+      const cur=Math.min(gL||tw,gR||tw);
+      const nx=Math.round(cur*0.9*10)/10;
+      if(!isFinite(nx)||nx<12)break;
+      const rr=tw>0?nx/tw:1;
+      [zL,zR].forEach(z=>{
+        if(!z||!z.style)return;
+        z.style.setProperty('--dtw',nx+'px');
+        z.style.setProperty('--dth',Math.round(th*rr*10)/10+'px');
+      });
+    }
+  }
+  applyMelds();     // 副露尺寸（内部会调 fitSideMelds 更新占位盒）
+}
+
+/* 左右两家副露的**占位盒**尺寸：牌转了 90°，占位必须宽高互换，
+   否则 flex 仍按「横排的一副牌」排版 → 相邻两副重叠、整块挤爆中排。
+   占位 = (牌高+内边距) × (牌宽×n + 间隙 + 内边距)，全由 --smw/--smh 推出来，不用量。 */
+function fitSideMelds(){
+  const root=document.documentElement;
+  if(!root||typeof getComputedStyle!=='function')return;
+  const gv=n=>{try{const v=parseFloat(getComputedStyle(root).getPropertyValue(n));return isFinite(v)&&v>0?v:0;}catch(e){return 0;}};
+  const smw=gv('--mel-w')||gv('--smw')||11, smh=gv('--mel-h')||gv('--smh')||15;
+  const boxes=document.querySelectorAll('#leftMelds .tbox.ml, #rightMelds .tbox.ml');
+  if(!boxes||!boxes.forEach)return;
+  boxes.forEach(bx=>{
+    const wrap=bx.firstElementChild;if(!wrap)return;
+    const meld=wrap.querySelector?wrap.querySelector('.meld'):null;
+    const n=(meld&&meld.children&&meld.children.length)?meld.children.length:3;
+    bx.style.width=Math.round(smh+4)+'px';
+    bx.style.height=Math.round(n*smw+(n-1)+4)+'px';
+  });
+
+  // ===== 左右两家副露宽度**对称化** =====
+  // 左右两家副露的副数常常不一样（一边 1 副、一边 2 副），占宽就不同 → 中排是
+  // space-between 排布，两边不等宽会把**中央信息块（牌墙+积分板）整块推偏**，
+  // 连带自己的弃牌也跟着偏（实测中心偏移 ~50px，副露变大后更明显）。
+  // 这里把两侧都撑到较宽的那一侧，中线就回到牌桌正中。
+  // ⚠️ 先清掉上一轮的 minWidth 再量，否则会一轮一轮越撑越宽（自反馈）。
+  const lmEl=document.getElementById('leftMelds'), rmEl=document.getElementById('rightMelds');
+  if(lmEl&&rmEl&&lmEl.style&&rmEl.style){
+    lmEl.style.minWidth=''; rmEl.style.minWidth='';
+    const w=Math.max(lmEl.offsetWidth||0, rmEl.offsetWidth||0);
+    if(w>0){lmEl.style.minWidth=w+'px'; rmEl.style.minWidth=w+'px';}
+
+  // ===== 左右**牌河**宽度同样对齐 =====
+  // 两家的牌数几乎不会一样，牌河宽度就不同 → 中央信息块（牌墙+积分板）被推偏
+  // （实测「一家 1 张、另一家 0 张」时偏 19px）。这里把两条牌河都撑到较宽的那条。
+  // ⚠️ 撑宽后若整行放不下，就一起逐步收回 —— 否则中央块会被两条牌河挤住。
+  const zlEl=document.getElementById('discardLeft'), zrEl=document.getElementById('discardRight');
+  if(zlEl&&zrEl&&zlEl.style&&zrEl.style){
+    zlEl.style.removeProperty('min-width'); zrEl.style.removeProperty('min-width');
+    let w2=Math.max(zlEl.offsetWidth||0, zrEl.offsetWidth||0);
+    const rowEl=document.querySelector('.midRow');
+    for(let k=0;k<10&&w2>0;k++){
+      zlEl.style.minWidth=w2+'px'; zrEl.style.minWidth=w2+'px';
+      // ⚠️ 只用 midRow 自己的溢出判断是**不够**的：中排被撑大时，它的 clientWidth 会跟着
+      //    一起变大（scrollWidth==clientWidth），于是永远判不出溢出 —— 而真正被挤出去的是
+      //    两侧的侧栏（手牌列跑到屏幕外，实测越界 5px）。所以直接量"侧栏 + 中央 + 侧栏"的总宽。
+      const tbEl=document.getElementById('table'), ceEl=document.querySelector('.center');
+      const sdEls=document.querySelectorAll?document.querySelectorAll('.side'):[];
+      let need=0, have=0;
+      if(ceEl)need+=ceEl.scrollWidth||0;
+      if(sdEls&&sdEls.forEach)sdEls.forEach(el=>{need+=el.offsetWidth||0;});
+      if(tbEl)have=tbEl.clientWidth||0;
+      const overRow=(rowEl&&typeof rowEl.scrollWidth==='number'&&rowEl.scrollWidth>rowEl.clientWidth+1);
+      const overSides=(have>0&&need>have+1);
+      if(!overRow&&!overSides)break;
+      w2=Math.round(w2*0.9*10)/10;
+      if(w2<12)break;
+    }
+  }
+  }
+}
+
+function fitBacks(){
+  const root=document.documentElement;
+  const table=document.getElementById('table');
+  if(!table||typeof table.getBoundingClientRect!=='function')return;
+  const rectH=el=>(el&&typeof el.getBoundingClientRect==='function')?el.getBoundingClientRect().height:0;
+  // --- 左右两家（竖排；亮牌时是 3 列网格）---
+  [['leftHand','leftMelds'],['rightHand','rightMelds']].forEach(([hid,mid])=>{
+    const hand=document.getElementById(hid);
+    const side=hand&&hand.parentElement;
+    if(!hand||!side||typeof hand.classList==='undefined')return;
+    const reveal=hand.classList.contains('reveal');
+    const ds=measureBack(hand,['--side-bw','--side-bh','--side-gap']);
+    const designSideW=ds.w||15, designSideH=ds.h||21;
+    const sideRatio=(designSideH/designSideW)||1.36;
+    const tag=side.querySelector?side.querySelector('.nameTag'):null;
+    const melds=document.getElementById(mid);
+    let gap=3;
+    if(typeof getComputedStyle==='function'){
+      const gv=parseFloat(getComputedStyle(side).getPropertyValue('row-gap'));
+      if(isFinite(gv))gap=gv;
+    }
+    const kids=side.children?side.children.length:1;
+    // 可用高度按**实测坐标**算，而不是"格子高 - 各块高度"：侧栏可能有 padding
+    // （横屏给整列加了 padding-top 让开右上角的悬浮按钮），高度相减会把这些让位漏算。
+    // ⚠️ 上限必须取**整列盒子的下沿**（侧栏被 align-items:stretch 撑到牌桌内容区底部，
+    //    位置稳定），再减去副露的**高度**；绝不能用副露的 top —— 副露在文档流里紧跟手牌列，
+    //    top 会随 --side-bh 一起变，形成"缩小→可用更小→再缩小"的正反馈，
+    //    最后把牌压成一叠（实测 13 张只剩 168px 高、还被挤到 97px 的盒子里溢出压住副露）。
+    const rectOf=el=>(el&&el.getBoundingClientRect)?el.getBoundingClientRect():null;
+    const sR=rectOf(side), tR=rectOf(tag);
+    // ⚠️ 副露已搬到中排（各家的前面），**不在侧栏里了** → 只有它还在侧栏时才扣高度。
+    const inRail=!!(melds&&side&&side.contains&&side.contains(melds));
+    const mR=(inRail&&melds.children&&melds.children.length)?rectOf(melds):null;
+    // 手牌列自己的上下留白（margin/padding）也要一起扣掉
+    let handBox=0, meldsBox=0;
+    if(typeof getComputedStyle==='function'){
+      const hc=getComputedStyle(hand);
+      handBox=(parseFloat(hc.marginTop)||0)+(parseFloat(hc.marginBottom)||0)
+        +(parseFloat(hc.paddingTop)||0)+(parseFloat(hc.paddingBottom)||0);
+      if(mR&&melds){
+        const mc=getComputedStyle(melds);
+        meldsBox=(parseFloat(mc.marginTop)||0)+(parseFloat(mc.marginBottom)||0);
+      }
+    }
+    // ⚠️ 基准必须用**外框行高**，不能用侧栏自己的 bottom：
+    //    侧栏现在 align-self:center（整块居中），它的 bottom 会随内容变化 ——
+    //    拿它当基准就是「牌越大 → 可用越小 → 牌越小」的自反馈（实测会把整列压成一叠）。
+    //    那一行是 flex:1 + align-items:stretch，高度由牌桌决定，稳定。
+    const row=side.parentElement;
+    const rowH=(row&&row.clientHeight)?row.clientHeight:((sR?sR.height:0)||0);
+    const tagH=tR?tR.height:0;
+    // 末尾留 8px 余量：副露在侧栏里紧跟在手牌列下面，实测两者边缘会碰 2~3px。
+    const avail=Math.max(24, rowH-tagH-gap*((kids||1)-1)-handBox
+      -(mR?(mR.height+meldsBox):0)-8);
+    const n=hand.children.length;
+    if(!n)return;
+    // 亮牌 / 未亮牌**共用同一套算法**：一列 n 张、按可用高度排（原位置翻面，不重排）。
+    // 牌背转 90° 后，每张在屏幕上占的"高度"是牌的**宽** → 按 bw 排高度、bh 由比例推。
+    // 未亮牌：一列 n 张，先按"最小间距 1px"算能长多高，不够就叠压。
+    const minGap=1;
+    // （旧算法：按牌高排高度。牌转过 90° 后不适用，已改为按牌宽排。）
+    // 宽度按比例推出。
+    // 🔴 牌背是**转过 90° 的**（朝向这一家自己），所以它在屏幕上占的"高度"是牌的**宽**，
+    //    不是牌高 —— 按 bw 排高度、bh 由比例推出来（与"竖排牌"的算法正好互换）。
+    //    踩过：按牌高排高度 → 一列 13 张直接溢出侧栏、压住副露。
+    let bw=Math.min(designSideW*1.25,(avail-minGap*(n-1))/n);
+    let g=minGap;
+    if(bw<7){ bw=7; g=(avail-bw*n)/(n-1||1); }
+    let bh=Math.round(Math.max(12,bw*sideRatio)*10)/10;
+    bw=Math.round(bw*10)/10;
+    // 空间不够时先保住最小高度 12px，再把间距压成负数（牌叠压）。
+    // ⚠️ 间距要按 n 张牌一起算：(avail − bh*n)/(n−1)。漏掉那个 n 会算出"正间距"，
+    //    牌列总高反而比可用高度还大（实测 avail=113 却摆出 168px，溢出压住副露）。
+    root.style.setProperty('--side-bw',bw+'px');
+    root.style.setProperty('--side-bh',bh+'px');
+    root.style.setProperty('--side-gap',(Math.round(Math.min(minGap,g)*10)/10)+'px');
+  });
+  // --- 对家（横排一整行）---
+  const th=document.getElementById('topHand');
+  if(th&&th.classList){
+    const n=th.querySelectorAll?th.querySelectorAll('.back,.tile').length:0;
+    if(n){
+      const dt=measureBack(th,['--top-bw','--top-bh']);
+      const designTopW=dt.w||18, designTopH=dt.h||25;
+      // 可用宽度要扣掉左右内边距（竖屏给悬浮按钮留了 44px×2，见 CSS）
+      let padX=0;
+      if(typeof getComputedStyle==='function'){
+        const cs=getComputedStyle(th);
+        padX=(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0);
+      }
+      const availW=(th.clientWidth||table.getBoundingClientRect().width)-padX;
+      const gap=cssNum(th,'gap',1)||1;
+      let bw=Math.min(designTopW*1.25,(availW-gap*(n-1)-2)/n);
+      if(!isFinite(bw)||bw<=0)bw=designTopW;
+      bw=Math.max(8,Math.round(bw*10)/10);
+      const bh=Math.min(designTopH*1.25,Math.round(bw*1.36*10)/10);
+      root.style.setProperty('--top-bw',bw+'px');
+      root.style.setProperty('--top-bh',bh+'px');
+    }
+  }
+}
+function syncLayout(){
+  const root=document.documentElement;
+  const mh=document.getElementById('myHand');
+  const mm=document.getElementById('myMelds');
+  const ac=document.getElementById('actions');
+  // 量不到尺寸就跳过（Node 端逻辑测试用的是轻量 DOM 桩，没有布局能力）
+  if(!mh||typeof mh.getBoundingClientRect!=='function')return;
+  const rectH=el=>(el&&typeof el.getBoundingClientRect==='function')
+    ?el.getBoundingClientRect().height:0;
+  const handRaw=rectH(mh);                                   // 只有手牌
+  const meldH=(mm&&mm.children.length)?rectH(mm):0;          // 只有副露
+  const handH=handRaw+meldH;
+  // 手牌顶边（操作条锚点，不含副露）—— 必须最先写，后面量操作条要用到它
+  root.style.setProperty('--hand-raw-h',Math.round(handRaw)+'px');
+  // 副露顶边（副露站在操作条之上，见 CSS）
+  root.style.setProperty('--hand-h',Math.round(handH)+'px');
+  // 顶部那块（对家名字 + 手牌背面 + 副露）占多高 —— 收起态结算窗（peek）用它算最大高度：
+  // 窗体停在底部往上长，长过头就会顶到对家的手牌（实测横屏压到 16x6）。写进 --top-h 给 CSS 用。
+  {
+    const rB=el=>{
+      if(!el||typeof el.getBoundingClientRect!=='function')return 0;
+      const b=el.getBoundingClientRect();
+      return (b.height>0)?b.bottom:0;
+    };
+    const topH=Math.max(rB(document.getElementById('topHand')),rB(document.getElementById('topMelds')))+6;
+    if(topH>0)root.style.setProperty('--top-h',Math.round(topH)+'px');
+  }
+  // 操作条高度：**实测**。它是绝对定位的浮层，高度只取决于按钮和容器宽度，
+  // 与自己的 bottom 无关，所以直接量不会形成循环依赖（旧注释担心的循环不存在）。
+  // 用实测值的理由：按钮多到换行时（碰 + 过 + 多个杠），实际高度能到 110px+，
+  // 写死 56px 会让预留高度不够 → 副露被迫站在按钮里面、弃牌区伸到按钮底下（互相遮挡）。
+  let actH=0;
+  if(ac&&ac.children.length){
+    // ⚠️ 必须区分"有按钮"和"有按钮但被藏起来"：
+    // 完局时 body.isOver 会把操作条 display:none（不让它浮在结算窗上），
+    // 此时若还按 ACT_H() 预留，副露会被顶高 56px、和手牌之间空出一条缝，
+    // 结算窗也可能盖在副露上。所以先看计算样式，藏起来就按 0 算。
+    const cs=(typeof getComputedStyle==='function')?getComputedStyle(ac):null;
+    if(!(cs&&cs.display==='none')){
+      const measured=rectH(ac);
+      actH=Math.round(measured>0?measured:ACT_H());
+    }
+  }
+  // 结算后底部会多出「本局详情 / 再来一局」两个按钮，它们与操作条**共用同一层**
+  //（手牌正上方的那条空档）。把它的实测高度并进 actH：
+  //   ① 预留高度够 → 按钮不会压到牌桌的弃牌区；
+  //   ② 副露的 bottom 是 handRaw+pad+actH，会自动站到按钮之上，不被压住。
+  // ⚠️ 完局时操作条是 display:none（actH 本来算 0），这一层正好让给这两个按钮。
+  const eb=document.getElementById('endBtns');
+  if(eb&&eb.classList&&eb.classList.contains('on')){
+    const bh=Math.round(rectH(eb));
+    if(bh>0)actH=Math.max(actH,bh+22);           // +22 = 上下留气，也给"建议打出的牌"的弹跳留出空间
+    // bottom 抬高到 14px：手牌里那张「建议打出的牌」有弹跳动画（向上 9px），
+    // 贴太近会被按钮压住（实测 myHand .sug × #reopen 相交 2px）。
+    if(eb.style)eb.style.bottom=Math.round(handRaw+botPad()+14)+'px';
+  }
+  root.style.setProperty('--act-h',actH+'px');
+  // ⚠️ 预留里必须带上手牌底部那块留白（--bot-pad，竖屏比横屏大，见 CSS）：
+  // 漏掉它，牌桌内容区会往下多伸那么多，压到副露/手牌上（实测 1~3px 的相压）。
+  const BOT_PAD=botPad();
+  const LIFT=10;   // 预选牌抬起的高度（见 .hand .tile.picked 的注释）；底部整摞必须预留这么多
+  root.style.setProperty('--reserve',Math.round(handRaw+actH+meldH+BOT_PAD+LIFT)+'px');
+  // 三层位置直接落成内联值：同一帧内就位，不依赖 CSS 变量在下一帧才生效。
+  //  手牌贴底 → 操作条落在手牌上沿 → 副露再落在操作条上沿
+  if(mh.style)mh.style.bottom=BOT_PAD+'px';
+  if(ac&&ac.style)ac.style.bottom=Math.round(handRaw+BOT_PAD+LIFT)+'px';   // 让开预选牌的抬起区
+  if(mm&&mm.style)mm.style.bottom=Math.round(handRaw+BOT_PAD+actH+LIFT)+'px';
+  // 最后再算他家手牌背面：这一步依赖上面刚写好的 --reserve
+  // （预留变高 → 牌桌变矮 → 侧栏可用高度跟着变），所以必须放在最后。
+  fitBacks();
+  fitDiscards();   // 弃牌尺寸跟手牌对齐（必须在 fitRow 之后）
+}
+function render(){
+  const mh=document.getElementById('myHand');mh.innerHTML='';  // 理牌顺序：万→条→筒，同花色内 1→9 从小到大（与真实麻将摆牌惯例一致）
+  const list=toList(G.hands[PLAYER]);list.sort((a,b)=>a-b);
+  const drawnTile=(G.drawn!==null&&G.phase==='discard')?G.drawn:null;
+  // 该你出牌时算一张"建议打出的牌"：碰/杠之后没有"刚摸到的那张"，手牌 11 张肉眼很难挑。
+  // 只在轮到玩家、且没有待决动作（碰/杠/胡按钮）时算。
+  const myTurn=(G.phase==='discard'&&G.turn===PLAYER&&!G.pendingAction);
+  const sug=myTurn?suggestCard(PLAYER):null;
+  // 碰完（G.drawn===null）没有可参考的牌 → 把日志栏高亮起来（文字由碰/杠流程写好：
+  // 「碰了 X，该你出牌 · 建议打 Y」），配合手牌上那张绿色虚线牌一起提示。
+  // 正常摸牌不高亮：金色的"刚摸到的牌"本身已经够醒目，每回合都闪反而吵。
+  if(myTurn&&sug!==null&&G.drawn===null)showTip(null);
+  else if(!myTurn||G.drawn!==null)hideTip();
+  // ===== 「现在就能碰/杠」的临场提醒 =====
+  // 常驻标记（成对的牌底下画色条）已按用户反馈去掉：看不明白那是什么、只显得牌面脏。
+  // 这里只处理"别人刚打出这张、我现在真的能碰/杠"的情况 → 让手里那一组牌跳出来，
+  // 配合操作条的「碰 / 可碰 X / 过」按钮，含义明确。
+  const paC=G.pendingAction;
+  const wantP=(paC&&paC.type==='peng')?paC.card:null;
+  const wantG=(paC&&(paC.type==='gang'||paC.type==='angang'||paC.type==='bugang'))?paC.card:null;
+  // 统计每种牌在手牌中出现的次序，用于给同一张牌的第2/3/4张加角标
+  // 预选的牌必须还在手里（碰/杠/换局后可能已经没了），否则清掉，避免"幽灵预选"
+  if(G.picked!==null&&!G.hands[PLAYER][G.picked])G.picked=null;
+  // ===== 同一时间**只允许一张牌立起来**（用户要求）=====
+  // 有预选牌时，其它牌一律"收回手牌"：
+  //   · "刚摸到"的那张不再抬起（只留细金环，给 CSS 的 #myHand.picking 去处理）——
+  //     否则它和预选牌会双双立着，看不出到底要打哪张；
+  //   · "建议打出的那张"的绿色虚线框 + 弹跳整个收掉（建议文字日志里还看得到）；
+  //   · 顺手解决一个隐患：若预选的正好是"刚摸到"的那张，两个抬起叠加会有 -20px，
+  //     抬进副露里。
+  const picking=(G.picked!==null);
+  mh.classList.toggle('picking',picking);
+  const seen={};
+  list.forEach(c=>{
+    const k=seen[c]=(seen[c]||0);seen[c]++;
+    const el=tileEl(c,false,k);
+    // 摸到的牌自动插回它应在的位置（不甩到末尾），仅加金色高亮
+    if(drawnTile!==null&&c===drawnTile&&k===G.hands[PLAYER][c]-1)el.classList.add('drawn');
+    // 预选：这张牌抬起 + 金框（同一种牌可能有多张，只在最后那一份上加，避免整组一起抬）
+    if(G.picked!==null&&c===G.picked&&k===G.hands[PLAYER][c]-1)el.classList.add('picked');
+    // 建议打出的那张：绿色虚线框（和"刚摸到"的金色高亮区分开，两张同时出现也看得懂：
+    // 金色=你摸到的是这张，绿色虚线=建议打这张）
+    // ⚠️ 但**已经预选了别的牌**时不再标（预选牌保留绿框/弹跳会变成两张牌同时立着）。
+    else if(!picking&&sug!==null&&c===sug&&k===G.hands[PLAYER][c]-1)el.classList.add('sug');
+    if(wantP!==null&&c===wantP)el.classList.add('wantpeng');
+    else if(wantG!==null&&c===wantG)el.classList.add('wantgang');
+    el.onclick=()=>onTileClick(c);
+    mh.appendChild(el);
+  });
+  // 自己可胡时整排手牌泛光，提示"该你胡了"
+  const canZimo=G.phase==='discard'&&G.turn===PLAYER&&G.drawn!==null&&canHu(G.hands[PLAYER],G.melds[PLAYER],{zimo:true});
+  mh.classList.toggle('huReady',canZimo);
+  // 自己的副露（含类型标签）
+  const mm=document.getElementById('myMelds');mm.innerHTML='';
+  G.melds[PLAYER].forEach(m=>mm.appendChild(meldEl(m,false)));
+  // 三家手牌 + 副露（正面，摆在自己一侧，方便查看别人碰杠了什么）
+  // 完局（phase==='over'）或玩家手动亮牌后，三家手牌全部翻正面：能看清每家到底听了什么、差哪张
+  const reveal=(G.phase==='over'||G.revealAll===true);
+  // 座位映射：**左＝上家(3)、右＝下家(1)**、上＝对家(2)。
+  // 这样 turn 递增（p+1）在屏幕上看就是**逆时针** —— 麻将的取牌/出牌方向。
+  [[3,'leftHand','leftMelds'],[2,'topHand','topMelds'],[1,'rightHand','rightMelds']].forEach(([p,hid,mid])=>{
+    const h=document.getElementById(hid);h.innerHTML='';
+    // 这一家的朝向：左＝上家(+90°)、右＝下家(-90°)；对家 180° 由容器 rotate 处理、自己 0°。
+    const rot=(p===3)?1:(p===1)?-1:0;
+    h.classList.toggle('reveal',reveal);
+    h.classList.toggle('revealWin',reveal&&G.result&&G.result.winner===p);
+    if(reveal){
+      // 亮牌：按 万→条→筒、同花色 1→9 理牌，与玩家自己手牌的排序口径一致
+      const list=toList(G.hands[p]);list.sort((a,b)=>a-b);
+      const seen={};
+      list.forEach(c=>{
+        const k=seen[c]=(seen[c]||0);seen[c]++;
+        const el=tileEl(c,false,k);
+        // 胡牌那张（点炮得的那张不在手牌里）标出金色边框
+        if(G.result&&G.result.winner===p&&G.result.winTile===c&&k===G.hands[p][c]-1)el.classList.add('drawn');
+        if(rot){const bx=document.createElement('div');bx.className='tbox bk'+(rot<0?' r':'');bx.appendChild(el);h.appendChild(bx);}
+        else h.appendChild(el);
+      });
+    }else{
+      // 背面尺寸统一交给 CSS 变量（对家 --top-bw/h、左右两家 --side-bw/h），
+      // 由 fitBacks() 按实测可用空间算。
+      // 旧版给左右两家写死内联 14×20，与各设备档的媒体查询互相打架，
+      // 矮屏（手机横屏）上 13 张就是 260px 高，直接溢出牌桌、压住自己的手牌。
+      const cnt=G.hands[p].reduce((a,b)=>a+b,0);
+      // 牌背一律竖着（参考图：四家牌都是竖的、字朝上）。
+      for(let i=0;i<cnt;i++){
+        const d=document.createElement('div');d.className='back';
+        if(rot){const bx=document.createElement('div');bx.className='tbox bk'+(rot<0?' r':'');bx.appendChild(d);h.appendChild(bx);}
+        else h.appendChild(d);
+      }
+    }
+    const mHolder=document.getElementById(mid);
+    if(mHolder){
+      mHolder.innerHTML='';
+      mHolder.classList.toggle('revealMelds',reveal);
+      G.melds[p].forEach(m=>mHolder.appendChild(meldEl(m,true)));
+      // 对家（上方）空间宽裕，副露带类型标签
+      if(p===2)mHolder.querySelectorAll('.meldWrap').forEach(w=>{
+        const g=w.querySelector('.meld');if(!g)return;
+        const mg=(g.className.indexOf('angang')>=0)?'angang':(g.className.indexOf('gang')>=0)?'gang':'peng';
+        const t=document.createElement('div');
+        t.className='meldTag'+(mg==='angang'?' angang':mg==='gang'?' gang':'');
+        t.textContent=mg==='angang'?'暗杠':mg==='gang'?'明杠':'碰';
+        w.appendChild(t);
+      });
+      // 左右两家的副露：每副包一层占位盒并转 ±90°（朝向这一家自己）。
+      // 高先给个保守值，fitSideMelds() 会按 --smw/--smh 重算准确的。
+      if(rot){
+        [].slice.call(mHolder.children).forEach(function(w){
+          if(String(w.className).indexOf('meldWrap')<0)return;
+          var bx=document.createElement('div');
+          bx.className='tbox ml'+(rot<0?' r':'');
+          mHolder.replaceChild(bx,w);bx.appendChild(w);
+        });
+      }
+    }
+  });
+  // ===== 四家弃牌区：各摆自家前方，最新的牌放大+金色描边 =====
+  // ⚠️ 渲染顺序有讲究：先渲染左右两家（贴边、易被挤出屏幕），
+  //    再渲染上下两家。这样自摸自摸后弃牌区一旦需要让步，让的是上下的，
+  //    贴边的左右两家始终留在可视区内。
+  const zones=[['discardLeft',3],['discardRight',1],['discardTop',2],['discardBottom',0]];   // 左＝上家、右＝下家
+  zones.forEach(([id,p])=>{
+    const z=document.getElementById(id);z.innerHTML='';
+    // 左右两家的牌河也要朝向这一家自己：牌转 ±90°，外面包占位盒（宽高互换）
+    const zrot=(id==='discardLeft')?1:(id==='discardRight')?-1:0;
+    const arr=G.discards[p];
+
+    // 牌数多时逐级缩小，确保整局弃牌都能完整显示。
+    // ⚠️ 档位必须按"本局出现过的最大牌数"判定（只升不降），**不能按当前牌数**：
+    //    碰/杠会把被碰走的那张从弃牌区 pop 掉，牌数会回落；档位若跟着退回大档，
+    //    就会看到"打出一张 → 整区缩小，那张被碰走 → 整区又放大"（牌河一缩一放）。
+    if(!G.discardPeak)G.discardPeak=[0,0,0,0];
+    const peak=G.discardPeak[p]=Math.max(G.discardPeak[p]||0,arr.length);
+    z.classList.toggle('compact', peak>9 && peak<=15);
+    z.classList.toggle('ultra', peak>15);
+    arr.forEach((c,i)=>{
+      const el=tileEl(c,true);
+      // 最新一张：仅当是全桌最近一次打出，且未被碰/杠吃掉
+      if(i===arr.length-1&&G.lastDiscard===c&&G.lastDiscardBy===p&&G.lastDiscard!==null){
+        el.classList.add('latest');
+        // 只在"刚刚打出"的 900ms 内跳动一下：之后的重绘不再加这个类，
+        // 描边就稳定不变（不会一闪一闪）。
+        if(Date.now()-(G.lastDiscardAt||0)<900)el.classList.add('spot');
+      }
+      if(zrot){
+        const bx=document.createElement('div');bx.className='tbox dt'+(zrot<0?' r':'');
+        bx.appendChild(el);z.appendChild(bx);
+      } else z.appendChild(el);
+    });
+  });
+  document.getElementById('wallInfo').textContent=`剩余 ${G.wall.length} 张`;
+  // 左右两家的弃牌区：牌是块状的（列数固定），不换行时会被左右 flex 布局的
+  // align-items:stretch 拉满格子高度 —— 内联元素（flex/grid 容器）有"默认拉伸
+  // 对齐"特性，牌就从中线开始往下排、整体溢出牌桌底部。这里把它钉在格子底边：
+  // 弃牌少时贴底（视觉上就是"自家面前的牌河"），多了自然向上长，永不越界。
+  const _lay=document.getElementById('table')&&document.getElementById('table').getBoundingClientRect;
+  if(_lay)['discardLeft','discardRight'].forEach(id=>{
+    const z=document.getElementById(id);
+    const cell=z.parentElement;
+    if(!z||!cell||!cell.getBoundingClientRect)return;
+    z.style.maxHeight='none';                    // 先清掉上一轮的限制再量
+    const naturalH=z.getBoundingClientRect().height;
+    const cellH=cell.getBoundingClientRect().height;
+    const dy=Math.round(cellH-naturalH);
+    // 弃牌太多时向上溢出（老牌被裁），**永远保证最新的牌看得见**：
+    // 原来 dy<0 就不位移，等于让最新那几张从下面被裁掉，是反的。
+    z.style.transform=(dy!==0)?`translateY(${dy}px)`:'';
+    z.style.maxHeight=Math.round(cellH)+'px';    // 弃牌太多时限制在格子内
+  });
+  // 积分板：实时显示累计总分 + 本局分。第一行是自己的名字（点它可以改名/换记录），
+  // 名字后面带「庄」的是本局庄家（下局由他摇色子先出牌）。
+  document.getElementById('scoreBoard').innerHTML=
+    `<div class="srow" style="color:#9fd;font-weight:700"><span>本局/累计</span><span></span></div>`
+    +NAMES.map((n,p)=>{
+      const v=G.scores[p], r=G.roundScore[p];
+      const cls=v>0?'pos':v<0?'neg':'';
+      const zhu=(G.dealer===p)?'<span class="zh">庄</span>':'';
+      const pen=(p===PLAYER)?'<span class="pen">✎</span>':'';
+      return `<div class="srow${G.turn===p?' cur':''}${p===PLAYER?' mine':''}"><span class="sname">${n}${zhu}${pen}</span><span class="${cls}">${r>0?'+':''}${r} / ${v>0?'+':''}${v}</span></div>`;
+    }).join('');
+  const lN=document.getElementById('leftName'),tI=document.getElementById('topInfo'),rN=document.getElementById('rightName');
+  // 左＝上家(3)、右＝下家(1) —— 与座位映射保持一致
+  lN.textContent='上家'+(G.turn===3?' ●':'');lN.classList.toggle('cur',G.turn===3);
+  tI.textContent='对家'+(G.turn===2?' ●':'');tI.classList.toggle('cur',G.turn===2);
+  rN.textContent='下家'+(G.turn===1?' ●':'');rN.classList.toggle('cur',G.turn===1);
+  // ===== 操作区：把**当前所有可行动作**都列出来 =====
+  // 原来只存一个 G.pendingAction → 同时可选时（能胡又能补杠/能杠又能碰）只弹一个，
+  // 玩家根本没得挑。现在 G.actions 是列表，逐个生成按钮。
+  const ac=document.getElementById('actions');ac.innerHTML='';
+  const acts=(G.actions&&G.actions.length)?G.actions.slice():(G.pendingAction?[G.pendingAction]:[]);
+  const mkBtn=(txt,cls,fn,hint)=>{
+    const b=document.createElement('button');b.textContent=txt;if(cls)b.className=cls;b.onclick=fn;
+    ac.appendChild(b);
+    if(hint){const h=document.createElement('span');h.className='hint';h.textContent=hint;ac.appendChild(h);}
+  };
+  if(acts.length){
+    // 抢杠只有"胡"一个选择，它的"过"要恢复补杠者摸牌（passQiangGang），单独处理
+    const onlyQG=acts.length===1&&!!acts[0].byQiangGang;
+    acts.forEach(a=>{
+      if(a.type==='hu'){
+        const plus=G.hands[PLAYER].slice();plus[a.card]++;
+        const p2=huPattern(fullCount(plus,G.melds[PLAYER]),G.melds[PLAYER].map(m=>m.card));
+        const gb=G.melds[PLAYER].filter(m=>m.type==='gang').length;
+        const base=p2?p2.fan+gb:1;
+        const mul=a.byQiangGang?4:1, tf=base*mul;
+        const hasDou=G.melds[PLAYER].some(m=>m.type==='gang');
+        if(p2&&(hasDou||base>=BIG_FAN||a.byQiangGang))
+          mkBtn(a.byQiangGang?('抢杠胡 '+p2.name):('胡 '+p2.name),'red',()=>doHu(PLAYER,a.from,false),
+            a.byQiangGang?`可抢杠胡 ${p2.name} ${tf} 番（×4）！${NAMES[a.from]}包赔`:`可胡 ${p2.name} ${tf} 番！`);
+        else if(a.byQiangGang)
+          mkBtn('过','gray',()=>passQiangGang(),'不能胡这手牌');
+      }else if(a.type==='gang')mkBtn('杠','',()=>doGang(PLAYER,a.card,a.from),'可杠 '+cname(a.card));
+      else if(a.type==='peng')mkBtn('碰','',()=>doPeng(PLAYER,a.card,a.from),'可碰 '+cname(a.card));
+      else if(a.type==='angang')mkBtn('暗杠','gray',()=>doAnGang(PLAYER,a.card),'可暗杠 '+cname(a.card)+'（闷豆，三家各 2 番）');
+      else if(a.type==='bugang')mkBtn('补杠','gray',()=>doBuGang(PLAYER,a.card),'可补杠 '+cname(a.card)+'（爬坡豆，三家各 3 番）');
+    });
+    // "过"：吃掉别人打出的牌 → 轮到下家；自己回合的动作 → 继续出牌
+    if(!onlyQG){
+      const f=G.lastDiscardBy;
+      const isClaim=acts.some(a=>a.type==='peng'||a.type==='gang'||a.type==='hu');
+      mkBtn('过','gray',()=>{clearActions();if(isClaim&&f>=0)nextTurn(f);else render();});
+    }
+  }else if(G.phase==='discard'&&G.turn===PLAYER){
+    // 报听 / 天听：本局第一次摸完牌、还没出牌时"打一张就能听" → 出现这个按钮
+    if(canBaoTing(PLAYER))
+      mkBtn(G.dealer===PLAYER?'报听':'天听','red',()=>doBaoTing(PLAYER),
+        (G.dealer===PLAYER?'报听':'天听')+'：手牌已听，此后摸什么打什么、不能碰杠（'+baoFanOf(PLAYER)+' 番）');
+    if(canZimo){
+      // 自摸预览：番数已含「自摸 +1」
+      const zp=currentPattern(G.hands[PLAYER],G.melds[PLAYER],{zimo:true,gangFlower:G.gangFlower});
+      const zname=huPattern(fullCount(G.hands[PLAYER],G.melds[PLAYER]),G.melds[PLAYER].map(m=>m.card));
+      mkBtn('自摸'+((zp&&zp.fan>1)?' '+(zname?zname.name:''):''),'red',()=>doHu(PLAYER,-1,true),
+        zp?`可自摸 ${zname?zname.name:''} ${zp.fan} 番（含自摸+1）！`:'可自摸！');
+    }
+    for(let i=0;i<27;i++){
+      // 暗杠：手里4张（且杠完仍能留下手牌、总数不超限）
+      if(G.hands[PLAYER][i]>=4&&canMelded(PLAYER,'angang'))
+        mkBtn('暗杠'+cname(i),'gray',()=>doAnGang(PLAYER,i),'闷豆：三家各 2 番');
+    }
+    // 补杠：已碰过某张且又摸到第 4 张（只消耗 1 张手牌）
+    G.melds[PLAYER].forEach(m=>{if(m.type==='peng'&&G.hands[PLAYER][m.card]>=1&&canMelded(PLAYER,'bugang'))mkBtn('补杠'+cname(m.card),'gray',()=>doBuGang(PLAYER,m.card),'爬坡豆：三家各 3 番（最高，但有被抢杠的风险）');});
+  }
+  // 我的手牌：按可用宽度缩放，永远一行（最多 14 张）
+  fitRow(mh,{ratio:1.36,varName:'--tw'});
+  // 我的副露不进 fitRow：它就是小牌，尺寸由 CSS 定死（比手牌小一号即可）。
+  // 副露牌数最多 16 张 ×20px ≈ 320px，400px 宽的竖屏一行放得下。
+  // 存在性判断：Node 端逻辑测试用的轻量 DOM 桩没有 removeProperty。
+  if(mm&&mm.style&&typeof mm.style.removeProperty==='function')
+    mm.style.removeProperty('--meld-tw');
+  // 牌局结束（或玩家手动亮牌查看）时不再需要操作按钮
+  // （document.body 存在性判断：Node 端轻量 DOM 桩没有 body）
+  if(document.body&&document.body.classList)
+    document.body.classList.toggle('isOver',G.phase==='over'||G.revealAll===true);
+  // 最后一步：操作条已填充完毕，此时才能量准它的高度，再统一分配底部空间。
+  syncLayout();
+}
+/* ===== 出牌：**两步确认**（用户明确要求）=====
+   ① 点**任何**没被预选的牌 → 只是把它预选并弹起来（**不会打出**，包括"建议打出的那张"）；
+   ② 点**当前预选的那张** → 才真的打出。
+   换牌时旧的那张自动收回（任何时刻只有一张是预选态）；收回去的那张再点一次又是"弹起来"，
+   不会因为"曾经预选过"就变成一点即出。
+   ⚠️ 曾经留过一条"点建议牌一点即出"的快捷路径 —— 用户实测后否掉了：那会让"点其它牌"
+      偶尔直接打出去（点到的正好是建议牌时），和"两步确认"的预期冲突。
+   ⚠️ 预选的视觉必须**不影响布局**：用 transform 抬起（不改宽高、不挤动旁边的牌），
+      并且底部整摞预留了 10px 的「抬起区」（见 syncLayout 的 LIFT），抬起时不会压到副露。 */
+function onTileClick(c){
+  // 点得动就"嗒"、点不动（不是自己回合 / 有动作待决）就"唔" —— 手感和提示一次给足。
+  // 音频引擎在没有 WebAudio、被静音、还没解锁时都是**静默空转**，绝不影响牌局逻辑。
+  if(G.phase!=='discard'||G.turn!==PLAYER||G.pendingAction){SFX.play('deny');return;}
+  if(c===G.picked){                    // 就是当前预选的那张 → 打出
+    G.picked=null;
+    discard(PLAYER,c);
+    return;
+  }
+  G.picked=c;                          // 其它牌一律先预选（弹起来），等下一次点击
+  SFX.play('tap');                     // 选中：轻点一声
+  log('已选中 '+cname(c)+'，再点一次出牌');
+  render();
+}
+
+/* ===== 提示：建议打哪张 =====
+   碰/杠之后手牌里没有"刚摸到的那张"可参考，玩家常常不知道该打哪张
+   （尤其是碰完只剩 11 张，肉眼很难看出哪张最该丢）。
+   建议算法直接复用 AI 的出牌启发式 aiDiscardSmart()：向听数优先、
+   兼顾进张数、危险度和番型倾向 —— 人和 AI 用同一套判断，行为一致、也不额外维护两份逻辑。
+   注意它只读 G（对 counts 的加减是配对的），不会污染牌局状态。 */
+function suggestCard(p){
+  p=(p===undefined)?PLAYER:p;
+  const hand=G.hands[p];
+  if(!hand)return null;
+  if(hand.reduce((a,b)=>a+b,0)%3!==2)return null;   // 不是"该出牌"的张数（如杠完补摸前）
+  if(p===PLAYER&&typeof aiDiscardSmart==='function')return aiDiscardSmart(p);
+  return (typeof aiDiscardSmart==='function')?aiDiscardSmart(p):null;
+}
+let _tipT=null;
+// 「提示」只做两件事：把日志栏短暂高亮（醒目但不占布局），并记一个计时器。
+// 之前版本用一个浮动 chip 挂在手牌上方，实测会压住"自己弃牌区"/手牌，
+// 而且牌桌没有一处稳定空地（中央是积分板、两侧是牌河），所以改成"让建议的那张牌自己动"。
+function showTip(txt,ms){
+  const lg=document.getElementById('log');
+  if(lg&&lg.classList){
+    if(txt)lg.innerHTML=txt;
+    lg.classList.add('hl');
+  }
+  clearTimeout(_tipT);
+  _tipT=setTimeout(()=>{const l=document.getElementById('log');if(l&&l.classList)l.classList.remove('hl');},ms||3200);
+}
+function hideTip(){
+  const l=document.getElementById('log');
+  if(l&&l.classList)l.classList.remove('hl');
+  clearTimeout(_tipT);
+}
+
+/* 最新牌的"放大兜底"函数已删除：
+   以前最新牌改 width/height 放大，放不下时降级成 .latestRing；现在只用描边/光晕/提亮强调，
+   尺寸与普通牌完全一致 —— 既不会撑高牌河（老牌不跳动），也不会溢出被裁，无需兜底。 */
+
+// 横竖屏切换 / 窗口尺寸变化时重算布局。
+// 这里直接走 render()：旋转后不只是底部高度变了，牌宽、字号、他家手牌背面的
+// 设计尺寸（媒体查询）都换了档，只有重建一遍牌面才能重新跑 fitRow + syncLayout。
+// render() 只读 G、不写状态，重复调用是安全的（和每次出牌后调用同一个函数）。
+let _rotateT=null;
+function onViewportChange(){
+  clearTimeout(_rotateT);
+  _rotateT=setTimeout(()=>{ try{ render(); }catch(e){ syncLayout(); } },80);   // 等浏览器把新尺寸算完再量
+}
+// 事件监听做存在性判断：Node 端跑逻辑测试时用的是轻量 DOM 桩，没有这些方法。
+if(typeof window.addEventListener==='function'){
+  window.addEventListener('resize',onViewportChange);
+  window.addEventListener('orientationchange',onViewportChange);
+}
+if(window.visualViewport&&typeof window.visualViewport.addEventListener==='function')
+  window.visualViewport.addEventListener('resize',onViewportChange);
+
+// ===== 全屏 =====
+// 手机上「地址栏吃掉 60~100px」是竖屏最大的空间浪费，也是横屏最容易崩布局的地方。
+// 三条路兜底：
+//   ① 页面 meta（x5-fullscreen / mobile-web-app-capable / manifest）——国产浏览器与"加到桌面"生效
+//   ② 右上角按钮 → Fullscreen API（小米浏览器/Chrome/微博等都支持）
+//   ③ 不支持的内核（iPhone Safari）直接把按钮藏掉，不给一个点了没反应的假按钮
+(function initFullscreen(){
+  const btn=document.getElementById('fsBtn');
+  if(!btn)return;
+  const el=document.documentElement;
+  const req=el.requestFullscreen||el.webkitRequestFullscreen||el.webkitRequestFullScreen;
+  const exit=document.exitFullscreen||document.webkitExitFullscreen||document.webkitCancelFullScreen;
+  if(typeof req!=='function'){ btn.style.display='none'; return; }
+  const isFS=()=>!!(document.fullscreenElement||document.webkitFullscreenElement);
+  function enterFS(){ try{ const r=req.call(el); if(r&&typeof r.catch==='function')r.catch(()=>{}); }catch(e){} }
+  function exitFS(){ try{ if(typeof exit==='function')exit.call(document); }catch(e){} }
+  btn.onclick=()=>{ SFX.play('tap'); isFS()?exitFS():enterFS(); };
+  const onChange=()=>{
+    const on=isFS();
+    if(document.body&&document.body.classList)document.body.classList.toggle('isFS',on);
+    btn.title=on?'退出全屏':'全屏';
+    btn.setAttribute('aria-label',btn.title);
+    onViewportChange();        // 进出全屏会改变可视高度，重排一次
+  };
+  if(typeof document.addEventListener==='function'){
+    document.addEventListener('fullscreenchange',onChange);
+    document.addEventListener('webkitfullscreenchange',onChange);
+  }
+})();
+
+// ===== 启动：先读本地记录 —— 有名字就直接开局（庄家摇色子），没名字先取名 =====
+/* ===== 音效开关按钮 =====
+   与全屏按钮同一角落（排在它左边）。浏览器不支持 WebAudio 时把按钮藏掉 ——
+   不给一个点了没反应的假开关（和全屏按钮的处理一致）。 */
+(function initSoundToggle(){
+  const btn=document.getElementById('sndBtn');
+  if(!btn)return;
+  if(!SFX.available){ btn.style.display='none'; return; }
+  const sync=()=>{
+    const on=SFX.on();
+    if(document.body&&document.body.classList)document.body.classList.toggle('sndOff',!on);
+    btn.title=on?'音效：开（点击关闭）':'音效：关（点击打开）';
+    btn.setAttribute('aria-label',on?'音效开':'音效关');
+  };
+  sync();
+  btn.onclick=()=>{ SFX.toggle(); sync(); SFX.play('tap'); };   // 打开的那一下用一声"嗒"作确认
+})();
+
+(function initGame(){
+  Store.load();
+  updateMyName();
+  // 点积分板上自己那一行 → 改名 / 换记录
+  const sb=document.getElementById('scoreBoard');
+  if(sb&&typeof sb.addEventListener==='function'){
+    sb.addEventListener('click',e=>{
+      const t=e.target;
+      const row=(t&&typeof t.closest==='function')?t.closest('.srow.mine'):null;
+      if(row)openNameDlg(false);
+    });
+  }
+  const ok=document.getElementById('nameOk');
+  if(ok)ok.onclick=confirmName;
+  const rr=document.getElementById('nameReroll');
+  if(rr)rr.onclick=()=>{const i=document.getElementById('nameInput');if(i){i.value=randomName();try{i.select();}catch(e){}}};
+  const cl=document.getElementById('nameClear');
+  if(cl)cl.onclick=clearRecAndKeep;
+  const inp=document.getElementById('nameInput');
+  if(inp&&typeof inp.addEventListener==='function')
+    inp.addEventListener('keydown',e=>{if(e.key==='Enter')confirmName();});
+  if(Store.data.name&&Store.data.name.trim()){
+    const r=Store.rec(Store.data.name);
+    G.scores=r.scores.slice();G.dealer=r.dealer;G.nextDealer=null;G.handNo=r.hands||0;
+    Store.save();                       // 把补全过的字段顺手写回去
+    startHand();
+  }else{
+    openNameDlg(true);                  // 首次进入：先取名，确认后自动开第一局
+  }
+})();
+</script>
+</body>
+</html>
