@@ -1547,7 +1547,9 @@ const G={hands:[emptyC(),emptyC(),emptyC(),emptyC()],melds:[[],[],[],[]],discard
   revealAll:false,      // 完局亮牌开关（true=三家手牌翻正面）
   result:null,          // 本局结果（winner / winTile），供亮牌高亮使用
   // 贵阳捉鸡专属状态
-  chargeChicken:null,       // 冲锋鸡③：本局**全局第一张**被打出的幺鸡 {p,card,via,from}；p=当前持有者,
+  chargeChickens:[],        // 冲锋鸡③：**每个牌种各一只** —— 本局第一张被打出的 幺鸡(1条) 一只、
+                            //   第一张被打出的 乌骨鸡(8筒) 又一只（用户 2026-09-16："冲1条和冲8筒都算两个；
+                            //   两个在一家就有 4 个"）。[{p,card,via,from}]；p=当前持有者，
                             //   via/from 有值 = 被碰/杠走过 → 结算时若碰走者叫牌则持有者已换成他（见 chickenSettle ④）
   respChickens:[],          // 责任鸡④：**所有**被打出后被碰/杠走的鸡 [{from,by,card,how}]，打出者多付 1 分
   huList:[],                // 一炮多响：本张弃牌**所有**能胡的座位号（按出牌者逆时针顺序）；空 = 没人能胡
@@ -2000,7 +2002,7 @@ function resetHand(){
   G.discardPeak=[0,0,0,0];
   G.drawn=null;G.lastDiscard=null;G.lastDiscardBy=-1;G.lastDiscardAt=0;G.picked=null;G.pendingAction=null;G.actions=[];G.chickenCard=null;G.huList=[];
   G.roundScore=[0,0,0,0]; // 本局清零，累计分 G.scores 保留
-  G.chargeChicken=null;G.respChickens=[];G.gangFlower=false;G.fieldChicken=null;G.winTile=null;
+  G.chargeChickens=[];G.respChickens=[];G.gangFlower=false;G.fieldChicken=null;G.winTile=null;
   G.bao=[false,false,false,false];G.baoName=['','','',''];G.openFollow=null;
   G.tingFlag=false;                  // 新的一局：叫牌提示重新计数
   G.qiangGang=false;G.qiangGangPending=-1;G.hotCannon=false;G.hotCannonGang=null;
@@ -2142,9 +2144,10 @@ function discard(p,card){
   G.hands[p][card]--;G.discards[p].push(card);
   SFX.play('discard');   // 出牌：牌拍在桌面上的那一声（四家出牌都响 —— 真人坐一桌也听得见）
   VOICE.tile(card);       // 语音播报这张牌（方案 A：系统语音；与音效开关各自独立）
-  // 冲锋鸡③：本局**全局第一张**被打出的幺鸡（一局只有这一只，谁先打谁持有）。
-  // 持有者默认 = 打出者；若这张牌被**叫牌家**碰/杠走 → 责任转移（在碰/杠处改 p，结算时再验他是否叫牌）。
-  if(G.chargeChicken===null&&isChargeTile(card))G.chargeChicken={p:p,card:card};
+  // 冲锋鸡③：**每个牌种各一只** —— 本局第一张被打出的 幺鸡(1条)、第一张被打出的 乌骨鸡(8筒)
+  //   （用户 2026-09-16："冲1条和冲8筒应该都算两个；如果两个在一家，就有4个"）。
+  //   持有者默认 = 打出者；若这张牌被**叫牌家**碰/杠走 → 责任转移（在碰/杠处改 p，结算时再验他是否叫牌）。
+  if(isChargeTile(card)&&!G.chargeChickens.some(c=>c.card===card))G.chargeChickens.push({p:p,card:card});
   // 热炮（杠上炮）标记：本张牌若是「杠后补摸的第一张」打出的，点炮即算热炮。
   // gangFlower 在 drawTile 前后由杠流程置位，这里消费掉它并转成热炮标记。
   G.hotCannon=!!G.gangFlower;
@@ -2413,8 +2416,10 @@ function doPeng(p,card,from){
   //    ② "打出者是否未叫" 同理。两个前提都在 chickenSettle ⑤ 里判。
   if(isRespTile(card))G.respChickens.push({from:from,by:p,card:card,how:'碰'});
   // 冲锋鸡③：被碰走 → **责任转移**（持有者候选换成碰走者；结算时若他没叫牌则退回原打出者）
-  if(G.chargeChicken&&G.chargeChicken.p===from&&G.chargeChicken.card===card){
-    G.chargeChicken={p:p,card:card,via:'碰',from:from};
+  //   按**牌种**找那一只（一局最多两只：幺鸡一只、乌骨鸡一只，见 G.chargeChickens）
+  const ccPeng=G.chargeChickens.find(c=>c.card===card&&c.p===from);
+  if(ccPeng){
+    ccPeng.p=p;ccPeng.via='碰';ccPeng.from=from;
     log('冲锋鸡（'+cname(card)+'）被 '+NAMES[p]+' 碰走 → 责任转移到 '+NAMES[p]);
   }
   // 该牌已被碰走，取消最新弃牌高亮
@@ -2440,8 +2445,9 @@ function doGang(p,card,from){
   G.hotCannonGang={p:p,card:card,paPo:false,from:from};
   // 责任鸡④ / 冲锋鸡③：明杠把牌拿走，与碰同理（口径见 doPeng）
   if(isRespTile(card))G.respChickens.push({from:from,by:p,card:card,how:'杠'});
-  if(G.chargeChicken&&G.chargeChicken.p===from&&G.chargeChicken.card===card){
-    G.chargeChicken={p:p,card:card,via:'杠',from:from};
+  const ccGang=G.chargeChickens.find(c=>c.card===card&&c.p===from);
+  if(ccGang){
+    ccGang.p=p;ccGang.via='杠';ccGang.from=from;
     log('冲锋鸡（'+cname(card)+'）被 '+NAMES[p]+' 杠走 → 责任转移到 '+NAMES[p]);
   }
   if(from>=0){G.discards[from].pop();G.lastDiscard=null;G.lastDiscardBy=-1;}
@@ -2500,41 +2506,47 @@ function doHuMulti(list,from,zimo){
 
    ## 一、金鸡由**翻牌**决定（②）—— 翻牌本身不是鸡
    · **翻牌** = 牌墙里第 1 张未摸的牌（G.wall 栈顶）。**有玩家胡牌且牌墙未空**时才翻。
-   · 翻牌**正好是 幺鸡(1条) / 乌骨鸡(8筒)** → 这两种牌本局**升为金鸡**（分值 ×2）：
-       翻到 9条 → 金幺鸡；翻到 7筒 → 金乌骨鸡。
-   · 翻到别的牌（例如 5万）→ 本局**没有金鸡**（幺鸡/8筒 照常 1 分/张）。
-   · 🔴 翻牌**本身不算鸡、不参与任何计分**（用户 2026-09-15："捉鸡牌（翻牌 +1 那张）不算，
-       贵阳麻将没有这规则"）—— 旧实现曾把"翻牌 +1"当第三种鸡（叫"捉鸡牌"），**已删除**。
+   · **金鸡牌 = 翻到的牌的下一张**（点数 +1；9 之后回到 1）—— 用户 2026-09-16："翻牌的 +1 是鸡牌"。
+       代码里 G.chickenCard 存的就是这张"下一张"（`settle()` 里 `s*9+((t%9+1)%9)`）。
+   · 金鸡牌是 **幺鸡(1条)** → 本局幺鸡升金；是 **乌骨鸡(8筒)** → 本局 8筒 升金（该牌种 ×2）。
+       换成"翻到哪张"的说法：翻到 **9条** → 金幺鸡；翻到 **7筒** → 金乌骨鸡。
+   · 翻到的牌是别的（例如 5万）→ 本局**没有金鸡**（幺鸡 / 8筒 照常 1 分/张）。
+   · 翻牌**本身不算鸡、不参与计分**（用户 2026-09-15："捉鸡牌（翻牌 +1 那张）不算，贵阳麻将没有这规则"），
+     它的唯一作用是**判金鸡**（上一行）。⚠️ 别和"翻牌的 +1 是鸡牌"混了：能被计分的鸡始终只有 **幺鸡 / 8筒** 两种。
+   · "叫牌的手上有鸡牌的都得，有几个得几个" = 叫牌家的 幺鸡/8筒 **有几张算几张**（见 §三）。
 
    ## 二、每张鸡的分值 v（只有两个牌种）
      幺鸡 1 分/张（金 2）｜ 乌骨鸡 8筒 1 分/张（金 2）
      → 分值只跟**牌种**有关：金鸡只把"那一个牌种"翻倍，另一个牌种照旧。
 
-   ## 三、计数口径（用户 2026-09-15 明确：按**牌种**分，不按在手/打出分）
-   · **鸡 = 幺鸡(1条) / 8筒** —— 只有这两类牌会"赔给叫牌者"：
-       叫牌家：手牌 + 副露 + 自己牌河，全算（归自己）；
-       未叫家：**打出的**（牌河）计入叫牌家；**手里保留的**（手牌+副露）**不计**。
-       → ①：未叫牌者手里留着的鸡不送人，打出去的白送。
-   · **没有第三种鸡**：翻牌本身不进结算（见 §一）；未叫家的（在手或已打出）都不赔给叫牌者，
-       叫牌家自己的 幺鸡 / 8筒 照算。
-   ⚠️ 副露（碰/杠亮出来的牌）算"保留"不算"打出"——它还在自己门前，被碰走的牌归碰的人。
+   ## 三、计数口径（按**牌种**记，不按"在手/打出"记）
+   · **鸡 = 幺鸡(1条) / 乌骨鸡(8筒)** —— 只有这两类牌算分。
+   · **叫牌家**：手牌 + 副露 + 自己牌河，**全算**（都是他自己的鸡，"有几个得几个"）。
+   · **未叫家**：**不能收** —— 手里的、牌河里的都不给他算分（明细里显示 0 分）；
+        但**打出的** 幺鸡/8筒 会**转给每个叫牌家**（§四的"包鸡"）。
 
-   ## 四、收付方向（①⑤）
-   每张归叫牌家的鸡值 v 分，由**每个未叫家各赔 v 分**给该叫牌家。
-   → "未叫家打出的鸡"归**每个**叫牌家各一份，所有未叫家各赔一份。
-   → 四家都叫牌：没有未叫家 → 鸡分不转移（互不赔）；无人叫牌 → 不结算。
-   注：**叫牌家集合 = 胡牌者 ∪ 叫牌者**（③把两者并列，实质同一集合：胡牌者必然叫过牌）。
+   ## 四、收付方向（用户 2026-09-16 定稿；**旧口径作废**）
+   · **每个叫牌家按自己的鸡数，向其他三家各收一份**（叫牌家、未叫家**都要付**）。
+   · **未叫家只付不收**（他的鸡不算分）。
+   · **包鸡**：未叫家**打出的** 幺鸡/8筒 归**每个叫牌家**各一份（留着的仍不算）。
+   · 热炮（杠上炮）：点炮者的鸡**全烧**（不收、也不当包鸡赔），但**该他付的照付**。
+   · 用户给的算例（叫牌家 0 / 3 / 4 只，未叫家 1 只留着的）：
+        0 只的收 0 付 7 → −7；未叫家收 0 付 7 → −7；3 只的收 9 付 4 → +5；4 只的收 12 付 3 → +9（合计 0）。
+   · 无人叫牌 → 鸡分不计；叫牌家都没有鸡、也没有包鸡 → 无有效鸡分。
+   · 旧口径（已作废）：只在"叫牌 ↔ 未叫"之间结算、叫牌家之间"互不赔"。
+     **四家都叫牌时现在照样互收互付**（各自鸡数不同就有净额）。
 
    ## 五、冲锋鸡（③）/ 责任鸡（④）—— 独立收付，不走上面这套
-   · 冲锋鸡 = 本局**全局第一张**被打出的**幺鸡或乌骨鸡**（一局只有一只，谁先打谁持有）。
-     分值 2；本局翻到**金鸡**（金幺鸡 **或** 金乌骨鸡）→ 4。
-     **责任转移**：这张牌被**叫牌家**碰/杠走 → 持有者换成碰走者（前提是"碰走者叫牌或胡牌"，
+   · 冲锋鸡 = **每个牌种一只**：本局**第一张**被打出的 幺鸡、以及**第一张**被打出的 乌骨鸡
+     （用户 2026-09-16："冲1条和冲8筒应该都算两个；如果两个在一家，就有4个"）。
+     分值 2；该**牌种**本局是金鸡 → 4；同一家持两只 → 相加。
+     **责任转移**：这只牌被**叫牌家**碰/杠走 → 持有者换成碰走者（前提是"碰走者叫牌或胡牌"，
      在结算时判定）；碰走者未叫 → 不转移，仍归原打出者。
-     收付：持有者叫牌 → **其他三家各付 2 分**（含胡牌家 —— 胡了牌也照样付）；
-           持有者未叫 → 他给**每个**叫牌/胡牌玩家各付 2 分。
+     收付：持有者叫牌 → **其他三家各付**（含胡牌家 —— 胡了牌也照样付）；
+           持有者未叫 → 他给**每个**叫牌/胡牌玩家各付。
    · 责任鸡 = 打出的**幺鸡**被**叫牌家碰/杠走** → 那副露按碰 3 / 杠 4 张计入碰走者的鸡分
-     （即用户说的"其它家给 3 鸡"），打出这张牌的人**多付 1 分**（"打出的给 4 鸡"）。
-     前提：碰走者必须叫牌（否则那副露的鸡不算）；打出者必须未叫（叫牌家之间鸡分互不赔）。
+     （他随后按自己的鸡数向三家各收），打出这张牌的人**多付 1 分**。
+     前提：碰走者必须叫牌（否则那副露的鸡不算）；打出者必须未叫（包鸡只算未叫家打出的鸡）。
    ⚠️ 牌种口径（用户 2026-09-15 明确）：**乌骨鸡参与冲锋鸡、不参与责任鸡**。
       即：第一张打出的乌骨鸡可以是冲锋鸡（也能被碰走后转移责任），但乌骨鸡被碰走**不产生**
       那额外的 1 分。牌种由 `isChargeTile`（冲锋鸡：幺鸡或乌骨鸡）与 `isRespTile`（责任鸡：只认幺鸡）决定。
@@ -2612,93 +2624,101 @@ function chickenSettle(win, lines, total, burn){
   // ② 翻牌 + 每家明细（叫牌/未叫、手里的、打出的）
   lines.push(`翻牌：${fc!==null?chickenName(fc)+gold:'无（牌墙已空，不翻牌）'}　（翻牌只用于判金鸡，这张牌本身不算鸡）`);
   sur.forEach((s,p)=>{
-    const own=isBurned(p)?0:chickenOwnPts(s);
-    lines.push(`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${chickenCells(s)}${own?'（'+own+'分）':''}${isBurned(p)?'　· 鸡全烧（热炮）':''}`);
+    const own=(called[p]&&!isBurned(p))?chickenOwnPts(s):0;   // 未叫家收不到 → 0 分
+    const hasChicken=(s.rows||[]).length>0;
+    lines.push(`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${chickenCells(s)}${hasChicken?'（'+own+'分）':''}${isBurned(p)?'　· 鸡全烧（热炮）':''}`);
   });
 
 
   if(burnList.length)lines.push('热炮（杠上炮）：点炮者 '+burnList.map(x=>NAMES[x]).join('、')+' 的鸡全部烧掉 —— 这一局他的鸡都不算分');
 
-  // ③ 常鸡（幺鸡 / 8筒）的收付
+  // ③ 常鸡（幺鸡 / 8筒）的收付 —— 用户 2026-09-16 定稿（**与旧口径不同**，规则见文件头 §四）：
+  //    · **每个叫牌家按自己的鸡数，向其他三家各收一份**（叫牌家、未叫家**都要付**）。
+  //    · **未叫家不能收**：他的鸡都不算分（②段明细里显示 0 分）。
+  //    · **包鸡**：未叫家**打出的** 幺鸡/8筒 归**每个叫牌家**各一份（留着的仍不算）。
+  //    · 热炮：点炮者的鸡**全烧**（不收、也不当包鸡赔），但**该他付的照付**。
+  //    用户给的算例（对家 3 只、上家 4 只、你 0 只、下家未叫 1 只留着的）：
+  //      对家 每家收 3 × 3 家、上家 每家收 4 × 3 家 → 你 −7、下家 −7、对家 +5、上家 +9（合计 0）。
+  const ownC=[0,1,2,3].map(p=>(called[p]&&!isBurned(p))?chickenOwnPts(sur[p]):0);
+  const thrownC=[0,1,2,3].map(p=>{
+    if(called[p]||isBurned(p))return 0;                 // 只有**未叫家打出的**鸡才算包鸡
+    return sur[p].rows.reduce((a,r)=>a+((r.c===YAOJI||r.c===WUGUJI)?r.disc*r.v:0),0);
+  });
+  const sumOwn=ownC.reduce((a,b)=>a+b,0);
+  const sumThrown=thrownC.reduce((a,b)=>a+b,0);
   if(!dry){
-    if(callList.length&&unList.length){
-      const got=[];
-      callList.forEach(a=>{
-        if(isBurned(a))return;                        // 热炮：他的鸡全烧，不收
-        let per=0;                                    // 每个未叫家应付给 a 的分
-        sur[a].rows.forEach(r=>{per+=(r.keep+r.disc)*r.v;});                  // a 自己的全归己
-        unList.forEach(b=>{
-          if(isBurned(b))return;                        // 热炮：他的鸡全烧，也不赔
-          // 未叫家贡献给叫牌家的**只有 幺鸡(1条) / 8筒 这两类**：
-          //   · 打出去的     → 算（规则①）
-          //   · 手里保留的   → 不算（规则①后半句：留着的鸡不送人）
-          //   · 本局"翻牌 +1"那张（旧叫法"捉鸡牌"）→ 根本不算鸡（用户口径）
-          //     用户 2026-09-15 明确："打出去的鸡，1条 和 8筒 才赔给叫牌者，翻牌+1 的那张不赔"。
-          //   注：翻到 9条/7筒 时该牌种升金，仍是幺鸡/8筒 → 走本分支，只是分值 ×2。
-          sur[b].rows.forEach(r=>{if(r.c!==YAOJI&&r.c!==WUGUJI)return;per+=r.disc*r.v;});
-        });
-        if(!per)return;
-        unList.forEach(b=>{total[b]-=per;total[a]+=per;});
-        got.push(`${NAMES[a]} 每个未叫家收 ${per} 分 × ${unList.length} 家`);
-      });
-      lines.push(got.length?`鸡分：${got.join('；')}`:'鸡分：本局无有效鸡分（鸡都在未叫家手里留着）');
-    }else if(callList.length){
-      lines.push('鸡分：四家都叫牌 → 鸡分互不赔（鸡分只在"叫牌 ↔ 未叫"之间结算）');
-    }else{
-      lines.push('鸡分：本局无人叫牌 → 鸡分不计');
+    if(!callList.length)lines.push('鸡分：本局无人叫牌 → 鸡分不计');
+    else if(!sumOwn&&!sumThrown)lines.push('鸡分：本局无有效鸡分（叫牌家都没有鸡）');
+    else{
+      for(let i=0;i<4;i++){
+        const recv=(called[i]&&!isBurned(i))?(3*ownC[i]+sumThrown):0;   // 三家各收自己那份 + 包鸡各一份
+        const pay=(sumOwn-ownC[i])+((!called[i]&&!isBurned(i))?thrownC[i]*callList.length:0);
+        total[i]+=recv-pay;
+      }
+      const got=callList.filter(a=>ownC[a]>0).map(a=>`${NAMES[a]} 每家收 ${ownC[a]} 分 × 3 家（叫不叫都收）`);
+      thrownC.forEach((v,b)=>{ if(v)got.push(`包鸡：${NAMES[b]}（未叫）打出的鸡 → 每个叫牌家各 ${v} 分 × ${callList.length} 家`); });
+      lines.push('鸡分：'+got.join('；'));
     }
   }else{
     lines.push('（荒庄：本局豆、鸡都不算分，上面只是各家的鸡牌统计）');
   }
 
-  // ④ 冲锋鸡（③）—— 本局全局第一张被打出的幺鸡
+  // ④ 冲锋鸡（③）—— 本局第一张被打出的 幺鸡 一只、第一张被打出的 乌骨鸡 一只（**每个牌种各一只**）
   //    持有者：默认 = 打出者；被碰/杠走且**碰走者叫牌**（叫牌或胡牌）→ 转移给碰走者。
   //    ⚠️ 叫牌状态在**结算这一刻**才判：碰的当时他还没叫牌、后来叫牌了，也算他叫牌。
-  //    收付：持有者叫牌 → **其他三家各付 2 分**（金鸡 4；含胡牌家 —— 胡了牌也照样付）；
-  //          持有者未叫 → 他给每个叫牌家各付 2 分（鸡分只在"叫牌 ↔ 未叫"之间走）。
-  const ch=G.chargeChicken;
-  const cvG=(fc===YAOJI||fc===WUGUJI)?4:2;                // ③：翻到金鸡（金幺鸡 或 金乌骨鸡）→ 4 分
-  if(ch){
-    let holder=ch.p,via='';
-    if(ch.via){
-      if(called[ch.p]){via='（原打出者 '+NAMES[ch.from]+'，被 '+ch.via+'走 → 责任已转移）';}
-      else{
-        holder=ch.from;
-        lines.push(`冲锋鸡责任转移：${NAMES[ch.p]} ${ch.via}走时未叫牌 → 不转移，仍归原打出者 ${NAMES[holder]}`);
+  //    分值：2 分（该**牌种**本局是金鸡 → 4 分）；同一家同时持两只 → 相加
+  //          （例：幺鸡 2 + 乌骨鸡 2 = 4；金幺鸡时 4 + 2 = 6。用户 2026-09-16）
+  //    收付：持有者叫牌 → **其他三家各付**（含胡牌家 —— 胡了牌也照样付）；
+  //          持有者未叫 → 他给每个叫牌家各付（鸡分只在"叫牌 ↔ 未叫"之间走）。
+  const cvOf=card=>((fc===card)?4:2);                  // ③ 该牌种是金鸡 → 4 分
+  const chs=G.chargeChickens||[];
+  if(chs.length){
+    const hold={};                                     // 持有者 → 他持有的冲锋鸡
+    chs.forEach(ch=>{
+      let holder=ch.p,via='';
+      if(ch.via){
+        if(called[ch.p])via='（原打出者 '+NAMES[ch.from]+'，被 '+ch.via+'走 → 责任已转移）';
+        else{
+          holder=ch.from;
+          lines.push(`冲锋鸡责任转移：${NAMES[ch.p]} ${ch.via}走时未叫牌 → 不转移，仍归原打出者 ${NAMES[holder]}`);
+        }
       }
-    }
-    const what=`${chickenName(ch.card)}${via}`;
-    if(called[holder]){
-      // 付款方 = **其他三家**（含胡牌家！）—— 用户口径："就算胡牌了，该付的照付"。
-      //    冲锋鸡不因为他胡了牌就免付（豆和鸡本来也是这样：胡牌家照收照付，只是净额可能为负）。
-      const payers=[0,1,2,3].filter(q=>q!==holder);
-      if(payers.length){
-        if(!dry)payers.forEach(q=>{total[q]-=cvG;total[holder]+=cvG;});
-        lines.push(`冲锋鸡：${NAMES[holder]} 打出的第一张${what}（叫牌）→ 其他三家各付 ${cvG} 分（含胡牌家）`);
+      (hold[holder]=hold[holder]||[]).push({card:ch.card,via:via});
+    });
+    Object.keys(hold).forEach(k=>{
+      const a=+k,list=hold[k];
+      const val=list.reduce((sum,h)=>sum+cvOf(h.card),0);
+      const what=list.map(h=>chickenName(h.card)+h.via).join('、');
+      if(called[a]){
+        // 付款方 = **其他三家**（含胡牌家！）—— 用户口径："就算胡牌了，该付的照付"。
+        const payers=[0,1,2,3].filter(q=>q!==a);
+        if(payers.length){
+          if(!dry)payers.forEach(q=>{total[q]-=val;total[a]+=val;});
+          lines.push(`冲锋鸡：${NAMES[a]} 打出的第一张${what}（叫牌）→ 其他三家各付 ${val} 分（含胡牌家）`);
+        }else{
+          lines.push(`冲锋鸡：${NAMES[a]} 的${what}（全场就他一家）→ 无人可付，不结算`);
+        }
+      }else if(callList.length){
+        if(!dry)callList.forEach(q=>{total[a]-=val;total[q]+=val;});
+        lines.push(`冲锋鸡：${NAMES[a]} 打出的第一张${what}（未叫）→ 给每个叫牌家各付 ${val} 分 × ${callList.length} 家`);
       }else{
-        lines.push(`冲锋鸡：${NAMES[holder]} 的${what}（全场就他一家）→ 无人可付，不结算`);
+        lines.push(`冲锋鸡：${NAMES[a]} 的${what}（全场无人叫牌）→ 不结算`);
       }
-    }else if(callList.length){
-      if(!dry)callList.forEach(q=>{total[holder]-=cvG;total[q]+=cvG;});
-      lines.push(`冲锋鸡：${NAMES[holder]} 打出的第一张${what}（未叫）→ 给每个叫牌家各付 ${cvG} 分 × ${callList.length} 家`);
-    }else{
-      lines.push(`冲锋鸡：${NAMES[holder]} 打出的第一张${what}（全场无人叫牌）→ 不结算`);
-    }
+    });
   }
 
   // ⑤ 责任鸡（④）—— "其它家给 3 鸡、打出的给 4 鸡"
-  //    任何鸡牌被打出后被**碰/杠走**：那副露进碰走者的门前（碰 3 / 杠 4 张，已在③段按"保留"计入他的鸡分，
-  //    所以"其它未叫家各付 3"是③段自动出来的），本条只额外收**打出者那 1 分**。
+  //    打出的**幺鸡**被**叫牌家**碰/杠走：那副露进碰走者的门前（碰 3 / 杠 4 张，已在③段按"保留"计入他的鸡数，
+  //    所以他按自己的鸡数向三家各收），本条只额外收**打出者那 1 分**。
   //    两个前提（都在结算时判）：
   //      ① 碰走者必须叫牌 —— 否则那副露的鸡不算（未叫家保留的常鸡不计），整条不结算；
-  //      ② 打出者必须未叫 —— 他本来就站在"给 3"那一侧；若他本人也是叫牌家，则与碰走者同为叫牌、
-  //         鸡分互不赔，不产生收付（否则会出现"叫牌家之间赔鸡分"，与总规则冲突）。
+  //      ② 打出者必须未叫 —— 包鸡只算**未叫家打出的鸡**；打出者本人也叫牌时，这张牌随牌进了碰走者的
+  //         副露（已在③段算他的），不再多收这 1 分。
   const rps=G.respChickens||[];
   rps.forEach(rp=>{
     const tiles=(rp.how==='杠'||rp.how==='明杠')?4:3;
     const v=chickenValue(rp.card,fc);
     // ⚠️ 牌种二次把关：责任鸡只认幺鸡（乌骨鸡"参与冲锋鸡、不算责任鸡"）。
-    //    记录侧（doPeng/doGang）已经只记幺鸡；这里再挡一道，规则不会因为别处误记而跑偏。
     if(!isRespTile(rp.card)){
       lines.push(`责任鸡：${NAMES[rp.by]} 碰/杠走的是${chickenName(rp.card)} → 乌骨鸡不参与责任鸡，本条不结算`);
       return;
@@ -2708,11 +2728,11 @@ function chickenSettle(win, lines, total, burn){
       return;
     }
     if(called[rp.from]){
-      lines.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走，但打出者本人也叫牌 → 双方鸡分互不赔，本条不结算`);
+      lines.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走，但打出者本人也叫牌 → 包鸡只算未叫家打出的鸡，这 1 分不加`);
       return;
     }
     if(!dry){total[rp.from]-=1;total[rp.by]+=1;}
-    lines.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走 → 这副露按 ${tiles} 张算，其它未叫家各付 ${tiles*v} 分、${NAMES[rp.from]} 多付 1 分（共 ${tiles*v+1} 分），付给 ${NAMES[rp.by]}`);
+    lines.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走 → 这副露按 ${tiles} 张算，计入 ${NAMES[rp.by]} 的鸡分；${NAMES[rp.from]} 再多付 1 分`);
   });
   return {detail:sur,called:called,fieldChicken:fc};
 }
