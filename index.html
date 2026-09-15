@@ -225,7 +225,7 @@ body{
    换行后放不下的副露自己另起一列，横向空间在横屏本来就富余。 */
 
 @media (orientation:portrait){
-  :root{--dt-max-w:32px;--dt-max-h:43px;--dt-budget:0.24;--mel-max-w:25px;--mel-max-h:34px;--wall-tw:11px;--wall-th:15px}
+  :root{--dt-max-w:32px;--dt-max-h:43px;--dt-budget:0.24;--mel-max-w:25px;--mel-max-h:34px;--wall-tw:15px;--wall-th:21px}
   :root{--bot-pad:7vh;--bot-pad:clamp(18px,7dvh,88px)}
 }
 /* 没有副露时整条按住（否则会留一条 5px 的透明空条压在弃牌区下沿） */
@@ -559,7 +559,7 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
 
 /* --- ② 手机竖屏（窄、长）：核心场景 --- */
 @media (max-width:520px){
-  :root{--dt-max-w:32px;--dt-max-h:43px;--dt-budget:0.24;--mel-max-w:25px;--mel-max-h:34px;--wall-tw:11px;--wall-th:15px}
+  :root{--dt-max-w:32px;--dt-max-h:43px;--dt-budget:0.24;--mel-max-w:25px;--mel-max-h:34px;--wall-tw:15px;--wall-th:21px}
   /* 他家手牌背面的设计基准（JS 只缩不放，见 fitBacks） */
   :root{--back-w:24px;--back-h:33px;--side-w:15px;--side-h:21px}
   /* 牌面按屏宽流体缩放，13 张手牌一行排得下的同时尽量大 */
@@ -634,7 +634,7 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
       iPad 的大牌尺寸会盖到横屏手机上（整桌溢出、层层遮挡）。
       故 ③ 管「矮屏」，④ 管「宽且高的平板」，用高度把两者切开。 */
 @media (orientation:landscape) and (max-height:520px) and (max-width:1100px){
-  :root{--dt-max-w:26px;--dt-max-h:35px;--dt-budget:0.20;--mel-max-w:22px;--mel-max-h:29px;--wall-tw:10px;--wall-th:14px}
+  :root{--dt-max-w:26px;--dt-max-h:35px;--dt-budget:0.20;--mel-max-w:22px;--mel-max-h:29px;--wall-tw:13px;--wall-th:18px}
   /* 横屏又矮又宽：右上角悬着全屏按钮，侧栏整块居中会把名字顶到按钮下面（实测 28×7 相交）→
      给侧栏一条上边留白，居中位置整体下移半个留白量，名字就落在按钮下方了。 */
   .side{margin-top:56px}
@@ -774,7 +774,7 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
   #result.peekMode .rBtns{margin-top:2px}
   #result.peekMode .rBtns button{padding:5px 12px;min-height:30px}
   #result.peekMode .line{font-size:10.5px;padding:0}
-  #result.peekMode .rWallG .tile{width:8px;height:11px}
+  #result.peekMode .rWallG .tile{width:10px;height:14px}
   /* 收起态在矮横屏要**再省掉「累计积分」那一块**（约 100px）：窗体上限是
      「屏高 − 底部整摞 − 顶部对家那一摞」，400px 高的屏只剩 ~290px，
      而两张表加起来要 319px → 会滚起来（实测裁切 23px）。
@@ -782,8 +782,8 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
   #result.peekMode .scoreSummary{display:none}
   /* 墙牌块再省一档：400 高的横屏窗体上限只有 ~384px，原来超 12px（一超就滚动、等于白做）。 */
   #result .rWall{margin-top:4px;padding-top:4px}
-  #result .rWallT{font-size:10px;margin-bottom:2px}
-  #result .rWallG .tile{width:8px;height:11px}
+  #result .rWallT{font-size:11px;margin-bottom:2px}
+  #result .rWallG .tile{width:11px;height:15px}
 }
 
 /* --- ④ iPad / 平板（宽且高）：空间充足，牌面放大，触控更从容 ---
@@ -791,7 +791,7 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
       也会命中这一档，被套上 iPad 的大尺寸牌 → 整桌溢出、层层遮挡。
       高度门槛让 ④ 只管真正的平板（iPad 竖 834×1194 / 横 1194×834 都满足）。 */
 @media (min-width:760px) and (min-height:560px) and (pointer:coarse){
-  :root{--dt-max-w:46px;--dt-max-h:62px;--dt-budget:0.22;--mel-max-w:39px;--mel-max-h:51px;--wall-tw:17px;--wall-th:24px}
+  :root{--dt-max-w:46px;--dt-max-h:62px;--dt-budget:0.22;--mel-max-w:39px;--mel-max-h:51px;--wall-tw:22px;--wall-th:31px}
   /* 他家手牌背面的设计基准（JS 按实测空间缩放，见 fitBacks） */
   :root{--back-w:25px;--back-h:34px;--side-w:22px;--side-h:30px}
   /* 手牌上限 54→58：11 寸以上的平板多利用一点横向空间（JS 还会按
@@ -830,7 +830,7 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
    只加不改：前四档一条没动，手机/平板的表现与优化前完全一致。
    用 pointer:fine 把触屏设备排除在外，避免和 ④ 平板档抢规则。 */
 @media (min-width:1101px) and (pointer:fine){
-  :root{--dt-max-w:64px;--dt-max-h:86px;--dt-budget:0.22;--mel-max-w:48px;--mel-max-h:64px;--wall-tw:22px;--wall-th:30px}
+  :root{--dt-max-w:64px;--dt-max-h:86px;--dt-budget:0.22;--mel-max-w:48px;--mel-max-h:64px;--wall-tw:26px;--wall-th:36px}
   :root{
     --tw5:clamp(22px,min(2.7vw,3.4vh),64px);
     --back-w:calc(var(--tw5)*0.58);
@@ -1091,10 +1091,45 @@ function isSevenPairs(c){let p=0;for(let i=0;i<27;i++){if(c[i]===0)continue;if(c
 // 注意：贵阳捉鸡麻将【没有缺一门/定缺】要求（DoubleWin 规则对比表：定缺 ❌）。
 // 这里不再提供 isQue，历史上误加的缺门判定已全部移除。
 function canHuShape(c){if(isSevenPairs(c))return true;for(let i=0;i<27;i++){if(c[i]>=2){c[i]-=2;const ok=checkMelds(c);c[i]+=2;if(ok)return true;}}return false;}
+// ===== 副露（碰/杠）是**锁定的刻子**，判胡时不能拆开 =====
+// 本作没有"吃"，每一副副露都是固定刻子，理应只算「一个已完成的面子」。
+// 🔴 老做法：fullCount() 把每副副露按 3 张加回手牌，再交给 canHuShape() 整体拆解
+//    → 副露里的牌能被拆出来当顺子或将用。用户 2026-09-16 实测的误判：
+//      碰 9万 / 碰 2条 / 碰 3条 ＋ 手上 6筒7筒8筒 ＋ 4条5条（摸到 4条）
+//      被拆成「9万刻 + 2条刻 + 条345（从碰出的 3条里抽 1 张）+ 筒678 + 将（又抽 2 张条3）」
+//      → 弹出"自摸平胡"，但 4条5条 根本不是将，正确结论是**不能胡**。
+//    同一根因还污染了 isTing()（叫牌判定 → 决定鸡分赔给谁）与 shanten()（AI 向听数）。
+// 现在：暗牌必须自己凑出「(4 - 副露数) 个面子 + 恰好 1 将」；副露只当作已完成的面子。
+function checkSetsExact(c,need){                 // 剩下的牌刚好拆成 need 个面子？
+  if(need<0)return false;
+  let i=0;while(i<27&&c[i]===0)i++;
+  if(i===27)return need===0;
+  if(need===0)return false;
+  if(c[i]>=3){c[i]-=3;const ok=checkSetsExact(c,need-1);c[i]+=3;if(ok)return true;}
+  if(i%9<=6&&c[i+1]>0&&c[i+2]>0){c[i]--;c[i+1]--;c[i+2]--;const ok=checkSetsExact(c,need-1);c[i]++;c[i+1]++;c[i+2]++;if(ok)return true;}
+  return false;
+}
+function canSetsAndPair(c,need){                 // 凑出 need 个面子 + 恰好 1 将
+  if(c.reduce((a,b)=>a+b,0)!==need*3+2)return false;
+  for(let i=0;i<27;i++){
+    if(c[i]>=2){c[i]-=2;const ok=checkSetsExact(c,need);c[i]+=2;if(ok)return true;}
+  }
+  return false;
+}
+// 能不能胡：hand = **暗牌**计数，melds = 副露数组（每副固定算 1 个面子）
+function canWinWithMelds(hand,melds){
+  const c=(hand||[]).slice();
+  const n=(melds||[]).length;
+  if(n===0)return canHuShape(c);                                            // 门清：七对 或 4 面子 + 1 将
+  if(isSevenPairs(c))return false;                                           // 有副露做不成七对
+  if(n>=4)return c.reduce((a,b)=>a+b,0)===2&&c.some(x=>x===2);               // 大吊车：手里只剩一对
+  return canSetsAndPair(c,4-n);
+}
 // 把已副露的牌按真实规则补进计数：碰/明杠/暗杠均视为「一副面子」
 // 注意：杠虽然占 4 张实物牌，但在牌型判定中只等于一副面子（3 张的位置），
 // 若按 4 张计入会让总张数变成非法值（如 15 张），导致 checkMelds 永远拆不开。
-// 原实现只看暗牌，导致「大对子」这类靠副露成型的牌被误判为不能胡。
+// ⚠️ 但**判胡形状不能只看这个**：副露是锁定的刻子，必须用 canWinWithMelds(hand,melds)
+//    （fullCount 只给「清一色 / 大对子」这类花色与刻子统计用，见该函数注释）。
 function fullCount(hand,melds){
   const c=hand.slice();
   (melds||[]).forEach(m=>{c[m.card]+=3;});
@@ -1159,28 +1194,24 @@ function isLongQiDui(c){                   // 龙七对：七对且至少 1 组�
 //   导致清七对退化成七对、清一色退化成平胡。
 // c 传入的是 fullCount(hand, melds)；用 meldCards 传回副露牌，
 // 便于把「暗牌部分」还原出来做花色判定。
-function huPattern(c, meldCards){
-  const mc=meldCards||[];
-  // 「清」= **整副牌**（暗牌 + 副露）同一门花色 —— 清一色 / 清大对 / 清七对 / 清龙七对 共用。
-  // 🔴 老实现先把副露那张牌各扣回 3 张、只用"暗牌"判清一色 → 于是
-  //    "手里全万、副露却是筒" 也被算成清一色/清大对（用户实测反馈：大对子写成"清大对"）。
-  //    这里必须判 **c**（= hand + melds，见 fullCount）。
+function huPattern(hand,melds){
+  const mc=melds||[];
+  // fullCount 只用于「清一色 / 大对子」这类**花色与刻子统计**：清 = 暗牌+副露整副同一门。
+  const c=fullCount(hand,mc);
   const one=isOneSuit(c);
-  // 七对类：必须暗牌 14 张（有副露就不可能七对）
-  const dark14=(c.reduce((a,b)=>a+b,0)===14&&mc.length===0);
-  if(dark14){
+  // 🔴 形状判定必须用 canWinWithMelds（副露锁定为刻子）；
+  //    曾经用 canHuShape(fullCount(...)) → 副露能被拆开用，误判成能胡（见 canWinWithMelds 注释）。
+  if(!canWinWithMelds(hand,mc))return null;
+  // 七对类：必须门清 14 张（有副露就不可能七对）
+  if(mc.length===0){
     const info=sevenPairsInfo(c);
     if(info){
-      // DoubleWin 番表：龙七对 = 七对 + 至少 1 个四归一（含多个四归一）
       if(info.quads>=1)return {fan:one?20:10,name:one?'清龙七对':'龙七对'};
       return {fan:one?17:7,name:one?'清七对':'七对'};
     }
   }
-  if(!canHuShape(c))return null;
   const allPairs=isAllPairs(c);
-  // **大吊车** = 4 副露 + 单钓（手里只剩一对将，等一张凑将）17 点。
-  //   本作没有"吃"，4 副露必然都是碰/杠（刻子）→ 形状与大对子重合，靠"副露数 = 4"区分。
-  //   表里没有"清大吊车"档位 → 清一色的也按大吊车 17 点（取最高：17 > 清大对 15）。
+  // 大吊车 = 4 副露 + 单钓（手里只剩一对将等一张）17 点
   if(allPairs&&mc.length===4)return {fan:17,name:'大吊车'};
   if(allPairs)return {fan:one?15:5,name:one?'清大对':'大对子'};
   return {fan:one?10:1,name:one?'清一色':'平胡'};
@@ -1200,8 +1231,7 @@ function isBigPattern(p){return !!p&&p.fan>=BIG_FAN;}
 // melds 为刚胡时的副露列表；opts.gangFlower 表示本张牌是杠后摸到的（杠上花）
 function gangBonus(melds){return (melds||[]).filter(m=>m.type==='gang').length;}
 function canHu(hand,melds,opts){
-  const full=fullCount(hand,melds);
-  const pat=huPattern(full,(melds||[]).map(m=>m.card));
+  const pat=huPattern(hand,melds);
   if(!pat)return false;                                     // 牌型不成
   const hasDou=(melds||[]).some(m=>m.type==='gang');        // "豆"= 任意杠
   const zimo=!!(opts&&opts.zimo);
@@ -1217,7 +1247,7 @@ function canHu(hand,melds,opts){
 // opts.zimo      —— 自摸（番数 +1，与牌型无关）
 // opts.gangFlower —— 杠上花（番数 +1）
 function currentPattern(hand,melds,opts){
-  const p=huPattern(fullCount(hand,melds),(melds||[]).map(m=>m.card));
+  const p=huPattern(hand,melds);
   if(!p)return null;
   const o=opts||{};
   const gb=(o.gangFlower?1:0)+(o.zimo?1:0);   // 豆不折进番数（单独结算），这里只算杠上花/自摸
@@ -1265,20 +1295,21 @@ function handKey(c,mc){
   return k;
 }
 // 向听数：距离胡牌还差几张（-1 = 已胡，0 = 叫牌，n = 还差 n 张）
-// 重要：入参 c 必须是【含副露的完整计数】（即 fullCount 的结果）。
-// 因为副露在牌型判定里就等于一副面子，c 里已含这些牌，所以递归拆出的
-// 面子数本身就是「总面子数」，meldCount 只用于限制"还能再拆几副"（4 副面子上限）。
-// 曾经的错误：mc 被当作额外面子叠加到公式里，导致副露越多 shanten 越负（出现 -8 这种非法值）。
-function shanten(c, meldCount){
+// 入参：hand = **暗牌**计数（不含副露），meldCount = 副露副数（每副 = 1 个锁定面子）。
+// 🔴 这里必须只拆暗牌：老版本传的是 fullCount()（含副露的完整计数），于是副露里的牌
+//    能被拆出来凑对子/顺子 → 向听数偏乐观（和判胡误判是同一个根因）。
+//    正确做法：副露直接作为已完成的面子计入 m（递归从 m=mc 起），只对暗牌做拆解。
+// 注意：mc 只影响「已有的面子数」与缓存键，绝不能再把副露的牌放进 hand 里。
+function shanten(hand, meldCount){
   const mc=meldCount||0;
-  const key=handKey(c,mc);
+  const key=handKey(hand,mc);
   const hit=SH_CACHE.get(key);
   if(hit!==undefined)return hit;
   let best=99;
-  const a=c.slice();
+  const a=hand.slice();
   function rec(i, m, t, eye){
     if(i>=27){
-      // 总面子数 m（含副露，因为 c 里含副露牌）；受上限 4 约束
+      // m 已含副露（递归从 m=mc 起），受 4 副面子上限约束
       const mm=Math.min(m,4);
       const tt=Math.min(t,4-mm);
       const sh=8-2*mm-tt-(eye?1:0);
@@ -1287,34 +1318,23 @@ function shanten(c, meldCount){
     }
     if(best<=-1)return;                  // 已算出「已胡」，不可能更优
     if(a[i]===0){rec(i+1,m,t,eye);return;}
-    // ① 拆刻子（面子数已达 4 就不再多拆，避免无意义枚举）
-    if(a[i]>=3&&m<4){
-      a[i]-=3; rec(i,m+1,t,eye); a[i]+=3;
-    }
-    // ② 拆顺子（同花色内 i,i+1,i+2）
+    if(a[i]>=3&&m<4){a[i]-=3; rec(i,m+1,t,eye); a[i]+=3;}
     if(m<4&&i%9<=6&&a[i]>0&&a[i+1]>0&&a[i+2]>0){
       a[i]--;a[i+1]--;a[i+2]--;
       rec(i,m+1,t,eye);
       a[i]++;a[i+1]++;a[i+2]++;
     }
-    // ③ 拆对子（先当将，再当搭子）
     if(a[i]>=2){
       a[i]-=2;
       if(!eye) rec(i,m,t,true);        // 当将
-      rec(i,m,t+1,eye);                // 当搭子（对子算一个搭子）
+      rec(i,m,t+1,eye);                // 当搭子
       a[i]+=2;
     }
-    // ④ 拆两面/嵌张搭子
-    if(i%9<=7&&a[i]>0&&a[i+1]>0){
-      a[i]--;a[i+1]--; rec(i,m,t+1,eye); a[i]++;a[i+1]++;
-    }
-    if(i%9<=6&&a[i]>0&&a[i+2]>0){
-      a[i]--;a[i+2]--; rec(i,m,t+1,eye); a[i]++;a[i+2]++;
-    }
-    // ⑤ 该张留作孤张
+    if(i%9<=7&&a[i]>0&&a[i+1]>0){a[i]--;a[i+1]--; rec(i,m,t+1,eye); a[i]++;a[i+1]++;}
+    if(i%9<=6&&a[i]>0&&a[i+2]>0){a[i]--;a[i+2]--; rec(i,m,t+1,eye); a[i]++;a[i+2]++;}
     a[i]--; rec(i,m,t,eye); a[i]++;
   }
-  rec(0,0,0,false);
+  rec(0,mc,0,false);
   if(SH_CACHE.size>=SH_CACHE_MAX)SH_CACHE.clear();
   SH_CACHE.set(key,best);
   return best;
@@ -1323,7 +1343,7 @@ function shanten(c, meldCount){
 // 有效进张：当前手牌再摸一张后，能「降低向听数」的牌共有多少张（考虑已消耗的牌）
 // 返回 {types: 种类数, tiles: 张数}，张数含牌河/副露里已见的扣减
 function usefulTiles(hand, melds){
-  const base=shanten(fullCount(hand,melds), (melds||[]).length);
+  const base=shanten(hand, (melds||[]).length);
   const total=hand.slice();
   (melds||[]).forEach(m=>{total[m.card]+=(m.type==='gang'?4:3);});   // 杠是 4 张，别一律按 3 张算
   // 统计所有已可见的牌（自己手牌 + 自己副露 + 全场牌河）
@@ -1336,7 +1356,7 @@ function usefulTiles(hand, melds){
   for(let c=0;c<27;c++){
     if(seen[c]>=4)continue;                 // 这张已经绝了
     hand[c]++;
-    const sh=shanten(fullCount(hand,melds),(melds||[]).length);
+    const sh=shanten(hand,(melds||[]).length);
     hand[c]--;
     if(sh<base){types++;tiles+=(4-seen[c]);}
   }
@@ -1447,7 +1467,7 @@ function aiDiscardSmart(p){
   for(let c=0;c<27;c++){
     if(hand[c]===0)continue;
     hand[c]--;
-    const sh=shanten(fullCount(hand,melds),meldN);
+    const sh=shanten(hand,meldN);
     hand[c]++;
     // 打出幺鸡/乌骨鸡会触发冲锋鸡责任，给一个虚拟惩罚（推后其优先级）
     const chicken=(c===9||c===25)?1.5:0;
@@ -1498,9 +1518,9 @@ function shouldPeng(p, card){
   // 🔴 原来只写了 `h2[card]-=2`，**忘掉碰出来的那 3 张** → 等于"碰一下凭空少 3 张牌"，
   //    算出来向听数永远变差 → 电脑几乎从不碰牌。实测 280 副手牌：旧口径只有 1% 通过、
   //    正确口径 95%（样例：before=2 → 旧算出 3 → 正确算出 1）。
-  const before=shanten(fullCount(hand,melds),melds.length);
-  const h2=hand.slice(); h2[card]+=1;          // -2（打出手里两张）+3（碰出的那副）= 净 +1
-  const after=shanten(fullCount(h2,melds),melds.length+1);
+  const before=shanten(hand,melds.length);
+  const h2=hand.slice(); h2[card]-=2;          // 暗牌 -2（碰出去的正是那两张）；多出的面子由 melds.length+1 表示
+  const after=shanten(h2,melds.length+1);
   // 碰之后向听数不能变大（变差就不碰）
   return after<=before;
 }
@@ -2102,11 +2122,11 @@ function aiWantGang(p){
     }
   }
   // ② 暗杠：手里正好 4 张
-  const before=shanten(fullCount(hand,melds),melds.length);
+  const before=shanten(hand,melds.length);
   for(let c=0;c<27;c++){
     if(hand[c]>=4&&canMelded(p,'angang')){
-      const h2=hand.slice();h2[c]-=1;                     // -4（手里 4 张）+3（多一副面子）= 净 -1
-      const after=shanten(fullCount(h2,melds),melds.length+1);
+      const h2=hand.slice();h2[c]-=4;                     // 暗牌 -4（杠出去那 4 张）；多出的面子由 melds.length+1 表示
+      const after=shanten(h2,melds.length+1);
       if(after<=before){doAnGang(p,c);return true;}
     }
   }
@@ -2784,7 +2804,7 @@ function settle(win,from,zimo,hotCannon){
   const flower=isZimo&&G.gangFlower;
   // ---- 逐家算牌型番（多家胡时每家各算各的）----
   const info=winners.map(w=>{
-    let pat=huPattern(fullCount(G.hands[w],G.melds[w]),G.melds[w].map(m=>m.card));
+    let pat=huPattern(G.hands[w],G.melds[w]);
     if(!pat)pat={fan:1,name:'平胡'};
     // 天胡 / 地胡：庄家 / 闲家第一次摸牌即自摸（取代基础牌型，取最高）
     const isTian=isZimo&&w===G.dealer&&G.firstDraw[w];
@@ -2884,7 +2904,7 @@ function isTing(p){
   if(n%3!==1)return false;
   for(let c=0;c<27;c++){
     G.hands[p][c]++;
-    const ok=canHuShape(fullCount(G.hands[p],G.melds[p]));
+    const ok=canWinWithMelds(G.hands[p],G.melds[p]);
     G.hands[p][c]--;
     if(ok)return true;
   }
@@ -2899,8 +2919,8 @@ function tingFan(p){
   let fan=0,name='';
   for(let c=0;c<27;c++){
     G.hands[p][c]++;
-    if(canHuShape(fullCount(G.hands[p],G.melds[p]))){
-      const pat=huPattern(fullCount(G.hands[p],G.melds[p]),G.melds[p].map(m=>m.card));
+    if(canWinWithMelds(G.hands[p],G.melds[p])){
+      const pat=huPattern(G.hands[p],G.melds[p]);
       if(pat&&pat.fan>fan){fan=pat.fan;name=pat.name;}
     }
     G.hands[p][c]--;
@@ -2976,7 +2996,9 @@ function endGame(){
   const rBtns=`<div class="rBtns"><button class="gray" onclick="closeResult()">再来一局</button></div>`;
   setResultBox(`<h2>荒庄</h2><div class="rMain">${main}</div><div class="rSide">${side}</div>`+rBtns);
   openResult();
-  peekTable();   // 结算**直接**收在角落：四家手牌当场全露出来（不再需要「看四家亮牌」按钮）
+  // 结算**直接展开**（用户 2026-09-16：不要先收在角落、再点一下才放大）。
+  // 牌桌上的四家手牌在 phase==='over' 时本来就已经翻开，不需要收起窗体才看得到；
+  // 想回到"一览牌桌"仍然点窗外的空白即可（onResultMaskClick 会收起）。
 }
 
 // 累计积分表（结算弹窗用）
@@ -2993,7 +3015,7 @@ function setResultBox(inner){
   document.getElementById('resultBox').innerHTML=
     `<button class="xBtn" type="button" aria-label="关闭" onclick="hideResult()">×</button>`
     +inner
-    +`<div class="peekHint">点窗体看明细（再点窗外的空白处收回角落）· 点右上角「×」关掉</div>`;
+    +`<div class="peekHint">点窗体看明细 · 点窗外的空白收回角落 · 点右上角「×」关掉</div>`;
 }
 // 打开结算窗（展开态）。**没有任何自动收起定时器** —— 只有用户动作才改变状态
 // （点窗体=展开 / 点窗外空白=收回角落 / 点「×」=关闭；当年那个 3.2 秒 setTimeout 已删）。
@@ -3045,7 +3067,7 @@ function showResult(res){
   SFX.play('settle',{delay:1.1});   // 结算窗的音：落在胡牌长音的尾巴上，不和它糊在一起
   setResultBox(title+`<div class="rMain">${main}</div><div class="rSide">${side}</div>`+wallBlock+rBtns);
   openResult();
-  peekTable();   // 结算**直接**收在角落：四家手牌当场全露出来（不再需要「看四家亮牌」按钮）
+  // 结算**直接展开**（同上：用户要求弹出即大图）
 }
 // 把结算窗缩到角落（不遮牌桌），此时可以直接看四家的亮牌
 function peekTable(){
@@ -3106,11 +3128,20 @@ function syncReopenBtn(){
 // 测试沙箱（Node vm）里的 DOM 桩没有 addEventListener，硬调会在加载期直接抛错。
 function onResultMaskClick(e){
   const r=document.getElementById('result');
-  if(!r||!e||!e.target||e.target.id!=='result')return;
-  // 只在**展开态**响应：点窗外的空白 → 收回到角落（回到"四家亮牌"那个视图）。
-  // 收起态点空白**什么都不做** —— 用户明确要求过："误触空白就把结算窗关掉，
-  // 反而让人以为没地方开下一局"。要关闭请点右上角「×」（关掉后底部还有两个按钮）。
-  if(r.classList&&r.classList.contains('peekMode'))return;
+  if(!r||!e||!e.target)return;
+  const inBox=e.target.id!=='result';                  // 点在窗体里（含按钮）
+  const tag=(e.target.tagName||'').toLowerCase();
+  const peek=!!(r.classList&&r.classList.contains('peekMode'));
+  if(inBox){
+    // 点窗体内的**按钮**不在这里处理（它们有自己的 onclick，比如「再来一局」直接开新局；
+    // 这里再展开会把刚关掉的结算窗又弹出来）。
+    if(tag==='button')return;
+    if(peek){ SFX.play('tap'); expandResult(); }       // 收起态 → 展开看明细（提示文案一直这么说，但以前点了没反应）
+    return;
+  }
+  // 点窗外的空白：展开态 → 收回到角落；收起态 → 什么都不做
+  // （用户明确要求过："误触空白就把结算窗关掉，反而让人以为没地方开下一局"。）
+  if(peek)return;
   SFX.play('tap');
   peekTable();
 }
@@ -3594,6 +3625,55 @@ function fitDiscards(){
       });
     }
   }
+  // ===== 确定性适配：按「牌数 + 可用像素」反算牌尺寸（不靠量溢出）=====
+  // 牌河是 overflow:hidden + flex 换行。溢出量在**部分内核**（iPad/iPhone Safari）报不出来 ——
+  // 实测牌河自己的 scrollHeight === clientHeight，于是上面那些"量到超了才缩一档"的判断全不触发，
+  // 牌一多就被静默裁掉（用户反馈：iPad Pro 11 上上下家的弃牌被裁切）。
+  // 这里改成先算后设：给定可用宽高与牌数，直接求最大可行的缩放 k，再写 --dtw/--dth ——
+  // 结果与内核无关，Safari 与 Chromium 算出来一样。
+  //   列数 = floor((可用宽 + 间隙) / (牌占位宽 + 间隙))，行数 = ceil(牌数 / 列数)
+  //   需要高 = 行数 × 牌占位高 + (行数 - 1) × 间隙  ≤  可用高
+  // ⚠️ 左右两家的牌河牌是**横躺**的（.tbox.dt 宽高互换）：占位宽 = --dth、占位高 = --dtw。
+  const zoneFitK=(n,availW,availH,bw,bh,gap)=>{
+    if(n<=0||!(availW>0)||!(availH>0)||!(bw>0)||!(bh>0))return 1;
+    let k=1;
+    for(let i=0;i<40;i++){
+      const w=bw*k,h=bh*k;
+      const cols=Math.max(1,Math.floor((availW+gap)/(w+gap)));
+      const rows=Math.ceil(n/cols);
+      const needH=rows*h+(rows-1)*gap;
+      if(needH<=availH+0.5&&w<=availW+0.5)break;
+      if(bw*k<=11)break;                    // 下限：再小就看不清了
+      k*=0.96;
+    }
+    return k;
+  };
+  ['discardLeft','discardRight','discardTop','discardBottom'].forEach(id=>{
+    const z=document.getElementById(id);
+    if(!z||!z.style||!z.children||!z.children.length)return;
+    const n=z.children.length;
+    const side=(id==='discardLeft'||id==='discardRight');
+    const cs=(typeof getComputedStyle==='function')?getComputedStyle(z):null;
+    const mhPx=cs?parseFloat(cs.maxHeight):NaN;
+    let availW,availH;
+    if(side){
+      availW=Math.max(24,cap);                                        // 侧栏牌河的宽度预算（上面算过）
+      availH=(isFinite(mhPx)&&mhPx>0)?mhPx:Math.max(0,((z.parentElement&&z.parentElement.clientHeight)||0)-8);
+    }else{
+      availW=(z.parentElement&&z.parentElement.clientWidth)||z.clientWidth||0;
+      availH=(isFinite(mhPx)&&mhPx>0)?mhPx:(z.clientHeight||0);       // 上下两家由 max-height 卡着
+    }
+    const gap=2;
+    const bw=side?th:tw, bh=side?tw:th;
+    const k=zoneFitK(n,availW,availH,bw,bh,gap);
+    if(!(k<1))return;                        // 放得下 → 保持原尺寸（能放下就和手牌同尺寸）
+    const cur=parseFloat(z.style.getPropertyValue('--dtw'))||tw;
+    const nx=Math.round(Math.min(cur,tw*k)*10)/10;
+    if(!isFinite(nx)||nx<=0)return;
+    z.style.setProperty('--dtw',nx+'px');
+    z.style.setProperty('--dth',Math.round(th*(tw>0?nx/tw:1)*10)/10+'px');
+  });
+
   applyMelds();     // 副露尺寸（内部会调 fitSideMelds 更新占位盒）
 }
 
@@ -4032,7 +4112,7 @@ function render(){
     acts.forEach(a=>{
       if(a.type==='hu'){
         const plus=G.hands[PLAYER].slice();plus[a.card]++;
-        const p2=huPattern(fullCount(plus,G.melds[PLAYER]),G.melds[PLAYER].map(m=>m.card));
+        const p2=huPattern(plus,G.melds[PLAYER]);
         const gb=G.melds[PLAYER].filter(m=>m.type==='gang').length;
         const base=p2?p2.fan+gb:1;
         const mul=a.byQiangGang?4:1, tf=base*mul;
@@ -4061,7 +4141,7 @@ function render(){
     if(canZimo){
       // 自摸预览：番数已含「自摸 +1」
       const zp=currentPattern(G.hands[PLAYER],G.melds[PLAYER],{zimo:true,gangFlower:G.gangFlower});
-      const zname=huPattern(fullCount(G.hands[PLAYER],G.melds[PLAYER]),G.melds[PLAYER].map(m=>m.card));
+      const zname=huPattern(G.hands[PLAYER],G.melds[PLAYER]);
       mkBtn('自摸'+((zp&&zp.fan>1)?' '+(zname?zname.name:''):''),'red',()=>doHu(PLAYER,-1,true),
         zp?`可自摸 ${zname?zname.name:''} ${zp.fan} 番（含自摸+1）！`:'可自摸！');
     }
