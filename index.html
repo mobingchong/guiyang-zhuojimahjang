@@ -918,6 +918,12 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
   #discardTop.compact,#discardBottom.compact{max-height:26px}
 }
 
+/* ===== 结算窗：内容装不下时**在窗内滚动**（不是裁切）=====
+   用户要求「结算弹出直接出大图」，而矮横屏（871×400）可用高只有 384px，展开后内容约 400px。
+   与其把它裁掉 16px，不如让窗体自己滚 —— 内容一张不少，往下滑就能看全。
+   ⚠️ 写在所有媒体查询之后：同优先级下后者胜，才能覆盖各档的 max-height 规则。 */
+#result .box{overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+
 /* ===== 四家副露：**统一尺寸**（写在所有媒体查询之后，保证压过各档写死的值）=====
    ⚠️ 以前四家各写各的：自己 20×27（#myMelds 的 !important）、对家 14×20（.topMelds）、
       左右两家 10.9×14.7（--smw/--smh = 手牌×0.42）—— 手牌一变就对不上，
