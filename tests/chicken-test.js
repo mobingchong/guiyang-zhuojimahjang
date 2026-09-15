@@ -186,23 +186,23 @@ const T=p=>JSON.stringify(p);
   // 转移成功：第一张幺鸡被【叫牌家】碰走 → 持有者换成碰走者
   s=await run(0,{fc:5,setHand:{2:TING13},charge:{p:2,card:9,via:'碰',from:1}});
   ok(s.p0[2]===true,'（前置）碰走者（对家）叫牌');
-  ok(s.total[2]===4&&s.total[1]===-2&&s.total[3]===-2,
-     '责任转移成功：由碰走者向每个未胡玩家各收 2 分',[s.total[1],s.total[2],s.total[3]]);
-  ok(s.total[0]===0,'赢家不付冲锋鸡的钱',s.total[0]);
+  ok(s.total[2]===6&&s.total[1]===-2&&s.total[3]===-2,
+     '责任转移成功：碰走者向其他三家各收 2 分（含赢家）',[s.total[1],s.total[2],s.total[3]]);
+  ok(s.total[0]===-2,'赢家也照付冲锋鸡的钱',s.total[0]);
   ok(s.lines.some(l=>/责任已转移/.test(l)),'明细写出"责任已转移"',s.lines);
   // 乌骨鸡作冲锋鸡时同样转移（乌骨鸡"参与冲锋鸡"）
   s=await run(0,{fc:5,setHand:{2:TING13},charge:{p:2,card:25,via:'碰',from:1}});
-  ok(s.total[2]===4&&s.total[1]===-2&&s.total[3]===-2,'乌骨鸡作冲锋鸡时同样责任转移（参与冲锋鸡）',[s.total[2],s.total[1],s.total[3]]);
+  ok(s.total[2]===6&&s.total[1]===-2&&s.total[3]===-2,'乌骨鸡作冲锋鸡时同样责任转移（参与冲锋鸡）',[s.total[2],s.total[1],s.total[3]]);
   // 转移失败：碰走者未叫牌 → 退回原打出者
   s=await run(0,{fc:5,charge:{p:2,card:9,via:'碰',from:1}});
   ok(s.p0[2]===false,'（前置）碰走者未叫牌');
   ok(s.total[0]===2&&s.total[1]===-2,'碰走者未叫 → 不转移，仍归原打出者（他未叫 → 给叫牌家付 2）',[s.total[0],s.total[1]]);
   ok(s.lines.some(l=>/不转移/.test(l)),'明细写出"不转移"',s.lines);
-  // 赢家不付：持有者自己是"听牌未胡" → 只有另外两个未胡玩家付
+  // **赢家也照付**：持有者是叫牌家 → 其他三家（含赢家）各付 2
   s=await run(0,{fc:5,setHand:{1:TING13},charge:{p:1,card:9}});
   ok(s.p0[1]===true,'（前置）下家听牌未胡');
-  ok(s.total[0]===0,'赢家不付（旧版是"其他三家各付"，把赢家也算了）',s.total[0]);
-  ok(s.total[1]===4&&s.total[2]===-2&&s.total[3]===-2,'持有者听牌未胡 → 另两个未胡玩家各付 2',[s.total[1],s.total[2],s.total[3]]);
+  ok(s.total[0]===-2,'赢家也照付（不因为是赢家就免付）',s.total[0]);
+  ok(s.total[1]===6&&s.total[2]===-2&&s.total[3]===-2,'持有者叫牌 → 其他三家各付 2（共 6）',[s.total[1],s.total[2],s.total[3]]);
   // 「其它家给 3 鸡、打出的给 4 鸡」端到端：叫牌家的副露里有 3 张幺鸡（碰走的）
   s=await run(0,{fc:5,setHand:{2:TING10},meld:{2:[{type:'peng',card:9,from:1}]},
                 resps:[{from:1,by:2,card:9,how:'碰'}]});
