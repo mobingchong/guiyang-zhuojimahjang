@@ -16,6 +16,10 @@
 
 ---
 
+## 在线体验
+
+[http://www.buez.cn:8088/mj/index.html](http://www.buez.cn:8088/mj/index.html)
+
 ## 界面预览
 
 | 手机竖屏 | 手机横屏 |
