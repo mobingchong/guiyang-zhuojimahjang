@@ -7,9 +7,15 @@
 *.md
 !README.md
 
-# 开发与验收产物
+# 开发与验收产物（tests 全不传）
 tests/
-preview/
+
+# preview：只放 README「界面预览」里真正引用的那 4 张（其余只留本地）
+preview/*
+!preview/竖屏-小米17-400x871.png
+!preview/横屏-小米17-871x400.png
+!preview/桌面-1920x1080.png
+!preview/竖屏-结算窗-得分-未摸到的牌-再来一局居中.png
 
 # 牌面素材（游戏运行时不读，只用于校准图形）
 flat_tiles/
