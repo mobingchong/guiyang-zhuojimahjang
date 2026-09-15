@@ -19,8 +19,14 @@ flat_tiles_png/
 .workbuddy/
 node_modules/
 
-# 临时脚本与备份
-_*.js
-_*.txt
-_*.json
+# 牌面数据的生成工具 + 素材源 + 用户下载的素材仓库（都不参与运行，只用于重做牌面）
+#   重做牌面的流程：tools/build-tile-faces.js → tools/install-tile-faces.js →
+#   tools/verify-tile-geometry.js，素材在 素材/ 与 mahjong-tiles-main/
+tools/
+素材/
+mahjong-tiles-main/
+
+# 临时脚本、临时目录与备份（本项目约定：所有临时产物一律以 _ 开头）
+_*
 *.bak
+
