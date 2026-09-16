@@ -2622,7 +2622,9 @@ function chickenSettle(win, lines, total, burn){
   // 热炮（杠上炮）：点炮者的鸡全部烧掉 —— 他的鸡不收、也不因此产生赔付
   const burnList=(Array.isArray(burn)?burn:[]).filter(p=>typeof p==='number'&&p>=0&&p<4);
   const isBurned=p=>burnList.includes(p);
-  const goldName=(fc===YAOJI)?'幺鸡(1条)':(fc===WUGUJI)?'乌骨鸡(8筒)':null;
+  // 本局有没有金鸡（非 null = 有）：金鸡就是"本局的鸡正好是 幺鸡 / 乌骨鸡 之一"那种情况。
+  // 名字只当**判据**用，真正显示的字一律走 chickenName()（免得两处叫法各写一套、改一个漏一个）。
+  const goldName=(fc===YAOJI||fc===WUGUJI)?chickenName(fc):null;
   // 🔴 用户 2026-09-16：这行要**写清"翻到什么 + 本局的鸡是什么"**（例：翻4万 → 鸡是5万）。
   //    ⚠️ 显示时别把"鸡牌"标成"翻牌"：G.chickenCard 存的是**翻到的牌的下一张**，翻到的牌是 G.flipCard。
   //    ⚠️ "本局的鸡"只用来判「金」—— 算分的牌永远只有 幺鸡(1条) / 乌骨鸡(8筒) 两种（见 chickenValue）。
