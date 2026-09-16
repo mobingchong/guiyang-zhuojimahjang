@@ -2601,43 +2601,40 @@ function chickenSurvey(p){
     .map(c=>({c:c,v:chickenValue(c,fc),keep:keep[c]||0,disc:disc[c]||0}));
   return {p:p,rows:rows};
 }
-/* 一行里某个牌种怎么称呼（用户 2026-09-16：`幺鸡(金)×2` 这个写法认同）：
+/* 一行里某个牌种怎么称呼（用户 2026-09-16 定稿）：
      · 幺鸡 / 乌骨鸡         → 「幺鸡」「乌骨鸡」
      · 其中本局是金鸡的那一个  → 「幺鸡(金)」
-     · 翻牌鸡（不是幺鸡/8筒）  → 「6万(翻牌鸡)」—— 翻牌鸡每局都换，不写牌名看不出是哪一张 */
+     · 翻牌鸡（不是幺鸡/8筒）  → **直接写牌名**（「5筒」）—— 第 2 行已经说了翻牌鸡是哪张，
+       这里再挂一个「(翻牌鸡)」只是重复；翻牌鸡每局都换，光看牌名+第 2 行就能对上。 */
 function chickenRowLabel(c,fc){
   if(c===YAOJI)  return fc===YAOJI?'幺鸡(金)':'幺鸡';
   if(c===WUGUJI) return fc===WUGUJI?'乌骨鸡(金)':'乌骨鸡';
-  return cname(c)+'(翻牌鸡)';
+  return cname(c);
 }
-// 一家的明细文字："幺鸡×2 乌骨鸡×1 ｜ 打 6万(翻牌鸡)×1"
-//   用户 2026-09-16：**去掉「留」这个字**（叫牌家留着的和打出的都算他的，标「留」反而让人以为"留在手里才算"）；
-//   只给**打出去的**保留一个「打」标记 —— 未叫家打出去的才进包鸡，这个区别要看得出来。
-//   neg=true（未叫家）：每一项前面加「-」—— 标记"这些都不算他的分"（用户 2026-09-16）。
-function chickenCells(s, neg){
+// 一家的鸡："幺鸡×2，5筒×1"（用户 2026-09-16：**只要类型与数量**）
+//   · 不再分「留 / 打」两段 —— 叫牌家留着的和打出的都算他的，本来就是一个总数。
+//   · 未叫家**不显示**（他的鸡一律不算分，写出来只是占地方），所以本函数不给 neg 参数。
+function chickenCells(s){
   const fc=G.chickenCard;
-  const pre=neg?'-':'';
-  const f=(k)=>s.rows.filter(r=>r[k]).map(r=>pre+chickenRowLabel(r.c,fc)+'×'+r[k]).join(' ');
+  const m=new Map();                       // 保序：rows 已按牌号排好 → 输出顺序稳定
+  s.rows.forEach(r=>{const n=(r.keep||0)+(r.disc||0); if(n)m.set(r.c,(m.get(r.c)||0)+n);});
   const parts=[];
-  if(f('keep'))parts.push(f('keep'));
-  if(f('disc'))parts.push('打 '+f('disc'));
-  return parts.join(' ｜ ')||'无鸡';
+  m.forEach((n,c)=>parts.push(chickenRowLabel(c,fc)+'×'+n));
+  return parts.join('，');
 }
-/* 一家的杠（豆腐）文字："闷豆6条(自) 点豆5万(上)"
-   用户 2026-09-16：杠要写清**谁放的** —— 自 / 对 / 上 / 下
-     · 闷豆（暗杠）、爬坡豆（补杠）都是自己成的 → (自)
-     · 点豆（明杠）= 别人放的第 4 张 → 写放那张牌的人
-   neg=true（未叫家）：加「-」前缀（未叫家的杠是倒赔）。
+/* 一家的杠文字："杠9万(自)"（用户 2026-09-16：闷豆/爬坡豆/点豆**统一写成「杠」**）
+   杠要写清**谁放的** —— 自 / 对 / 上 / 下（点豆写放那张牌的人，自杠写「自」）。
    ⚠️ 分类顺序不能反：补杠的 meld 继承了原来那副碰的 from(>=0)，
-      先判 from 会把它误算成点豆（douSettle 里踩过同一个坑，见那里的注释）。 */
+      先判 from 会把它误算成点豆（douSettle 里踩过同一个坑，见那里的注释）。
+   ⚠️ 三种豆分值完全一样（各 3 分），区别只在"谁付"，而"谁付"由括号里的座位说清了，
+      所以行里不必再分种类；豆的收付由下面的「豆：」行单独讲。 */
 const SEAT_ABBR=['自','下','对','上'];      // 座位号 → 简称（0＝自己 / 1＝下家 / 2＝对家 / 3＝上家）
-function douCells(p, neg){
+function douCells(p){
   const gs=(G.melds[p]||[]).filter(m=>m.type==='gang'&&!m.void);
   return gs.map(m=>{
     const isPoint=(!m.paPo&&m.from>=0);
-    const kind=m.paPo?'爬坡豆':(isPoint?'点豆':'闷豆');
-    return (neg?'-':'')+kind+cname(m.card)+'('+(isPoint?(SEAT_ABBR[m.from]||'他'):'自')+')';
-  }).join(' ');
+    return '杠'+cname(m.card)+'('+(isPoint?(SEAT_ABBR[m.from]||'他'):'自')+')';
+  }).join('，');
 }
 // 一家的全部鸡的**张数**与分值（含宽窄口径之外的自有部分，供显示 ）
 function chickenOwnPts(s){return s.rows.reduce((a,r)=>a+(r.keep+r.disc)*r.v,0);}
@@ -2662,11 +2659,13 @@ function chickenSettle(win, lines, total, burn, tail){
   // 本局有没有金鸡（非 null = 有）：金鸡就是"本局的鸡正好是 幺鸡 / 乌骨鸡 之一"那种情况。
   // 名字只当**判据**用，真正显示的字一律走 chickenName()（免得两处叫法各写一套、改一个漏一个）。
   const goldName=(fc===YAOJI||fc===WUGUJI)?chickenName(fc):null;
-  /* 第 2 行（用户 2026-09-16 定的六行结构）：翻到什么 → 翻牌鸡是哪张、几分/张。
-     ⚠️ G.chickenCard 存的是**翻到的牌的下一张**（= 翻牌鸡），翻到的牌本身是 G.flipCard。 */
+  /* 第 2 行（用户 2026-09-16 定的六行结构）：翻到什么 → 翻牌鸡是哪张。
+     ⚠️ G.chickenCard 存的是**翻到的牌的下一张**（= 翻牌鸡），翻到的牌本身是 G.flipCard。
+     ⚠️ 用户 2026-09-16：**不再写「（1 分/张）」** —— 分值表在 README / 帮助里，结算窗只报"是哪张"；
+        只有**金**要留一个标记（那会改分值，不提就是漏信息）。 */
   const flipTxt=(G.flipCard===null||G.flipCard===undefined)
-    ?'牌墙已空，不翻牌 · 幺鸡 / 乌骨鸡 各 1 分/张'
-    :`翻${cname(G.flipCard)} → 翻牌鸡 ${chickenName(fc)}（${goldName?'金 · 2 分/张':'1 分/张'}）`;
+    ?'牌墙已空，不翻牌'
+    :`翻${cname(G.flipCard)} → 翻牌鸡 ${chickenName(fc)}${goldName?'（金）':''}`;
   // ⚠️ 第 3~6 行要用到下面算出来的 ownC/thrownC，所以四家行**挪到收付算完之后**再 push。
 
   // ③ 常鸡（幺鸡 / 8筒）的收付 —— 用户 2026-09-16 定稿（**与旧口径不同**，规则见文件头 §四）：
@@ -2711,22 +2710,19 @@ function chickenSettle(win, lines, total, burn, tail){
   }
   /* ---- 第 2 行 + 第 3~6 行（用户 2026-09-16 定的结构）----
      顺序：**自己 → 对家 → 上家 → 下家**（用户指定，不是出牌顺序）。
-     每行 = 名字［叫牌/未叫］+ 他的杠（写清谁放的）+ 他的鸡（金 / 翻牌鸡 都挂在牌种上）+（他的鸡值几分）
-            + 未叫家打出的鸡 → 包鸡（写在**打出那张鸡的那一家自己**这一行里）。
+     每行 = 名字［叫牌/未叫］+ 他的杠 + 他的鸡（金 / 翻牌鸡 都挂在牌种上），项之间用「，」分隔。
+     · **未叫家一行只写到［未叫］** —— 他的杠、他的鸡全部不算他的分，列出来只是占地方（用户 2026-09-16）。
+     · **只有叫牌家**（收得到分的那种）才列；他打出去的鸡进了包鸡 → 在该行尾巴补一句
+       `→ 包鸡 各 N 分`（写在**打出那张鸡的那一家自己**这一行里）。
      "钱怎么走"不再单独占一行，方向由侧栏（rSide）的本局净额体现。 */
   lines.push(flipTxt);
   [0,2,3,1].forEach(p=>{
-    const s=sur[p];
-    const own=(called[p]&&!isBurned(p))?chickenOwnPts(s):0;   // 未叫家收不到 → 0 分
-    const neg=!called[p];                                     // 未叫家：每一项前面加「-」（都不算他的分）
     const seg=[];
-    const dou=douCells(p,neg);
-    if(dou)seg.push(dou);
-    const chk=chickenCells(s,neg);
-    if(chk!=='无鸡')seg.push(chk);
-    // 括号里写的是"**他的鸡值几分**"—— 杠的收付由下面的豆结算行说，
-    // 所以这里必须点明是"鸡"，否则像 `闷豆6条(自)（0分）` 会被读成"这个杠 0 分"。
-    let txt=`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${seg.length?seg.join(' '):'无'}（鸡 ${own} 分）`;
+    if(called[p]){                                   // 未叫家：后面一律不写
+      const dou=douCells(p);            if(dou)seg.push(dou);
+      const chk=chickenCells(sur[p]);   if(chk)seg.push(chk);
+    }
+    let txt=`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${seg.length?' '+seg.join('，'):''}`;
     if(thrownC[p])txt+=` → 包鸡 各 ${thrownC[p]} 分`;
     if(isBurned(p))txt+=' · 鸡全烧（热炮）';
     lines.push(txt);
