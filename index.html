@@ -2617,13 +2617,27 @@ function chickenRowLabel(c,fc){
 // 一家的鸡："幺鸡×2，5筒×1"（用户 2026-09-16：**只要类型与数量**）
 //   · 不再分「留 / 打」两段 —— 叫牌家留着的和打出的都算他的，本来就是一个总数。
 //   · 未叫家**不显示**（他的鸡一律不算分，写出来只是占地方），所以本函数不给 neg 参数。
-function chickenCells(s){
+//   · ⚠️ **已被算作冲锋鸡的那几张要从这里扣掉**（用户 2026-09-16 亲自纠的）：
+//     那张牌的价值已经由「冲锋鸡×N」表达，再列一次就是同一张牌出现两处 ——
+//     只打了 1 张 1条 且它就是冲锋鸡 → 只写「冲锋鸡×1」，**不写**「幺鸡×1」；
+//     打了 2 张 1条（第 1 张是冲锋鸡）→ `冲锋鸡×1，幺鸡×1`。
+//   · 排序：按**牌号**（万 → 条 → 筒）；冲锋鸡写在自己的牌号位置上、且**同牌种时排在普通鸡之前**
+//     （用 k=c（冲）与 k=c+0.5（普通）实现，正好对上用户给的两个例子）。
+//     里面"分值怎么算"完全没变 —— 扣掉的那张本来就不按常鸡计价（见 ③ 段的 cut()）。
+function chickenCells(s, chargeCards){
   const fc=G.chickenCard;
-  const m=new Map();                       // 保序：rows 已按牌号排好 → 输出顺序稳定
+  const m=new Map();                       // 保序：rows 已按牌号排好
   s.rows.forEach(r=>{const n=(r.keep||0)+(r.disc||0); if(n)m.set(r.c,(m.get(r.c)||0)+n);});
-  const parts=[];
-  m.forEach((n,c)=>parts.push(chickenRowLabel(c,fc)+'×'+n));
-  return parts.join('，');
+  (chargeCards||[]).forEach(c=>{           // 扣掉"已按冲锋鸡算过"的那张
+    if(!m.has(c))return;
+    const n=m.get(c)-1;
+    if(n>0)m.set(c,n); else m.delete(c);
+  });
+  const items=[];
+  m.forEach((n,c)=>items.push({k:c+0.5, t:chickenRowLabel(c,fc)+'×'+n}));
+  (chargeCards||[]).forEach(c=>items.push({k:c, t:'冲锋鸡×1'}));
+  items.sort((a,b)=>a.k-b.k);
+  return items.map(x=>x.t).join('，');
 }
 /* 一家的杠文字："杠9万(自)"（用户 2026-09-16：闷豆/爬坡豆/点豆**统一写成「杠」**）
    杠要写清**谁放的** —— 自 / 对 / 上 / 下（点豆写放那张牌的人，自杠写「自」）。
@@ -2743,12 +2757,14 @@ function chickenSettle(win, lines, total, burn, tail, huFan){
      "钱怎么走"不再单独占一行，方向由侧栏（rSide）的本局净额体现。 */
   lines.push(flipTxt);
   [0,2,3,1].forEach(p=>{
+    // 这一家持有的冲锋鸡（牌号列表）—— 传进 chickenCells 是为了把那张牌从常鸡里扣掉、
+    // 并在自己的牌号位置上插一项「冲锋鸡×1」（用户 2026-09-16 亲自纠的重复计数）。
+    const ck=(chargeHold[p]||[]).map(h=>h.card);
     const seg=[];
-    if(called[p]){                                   // 叫牌家：杠 + 鸡 + 冲锋鸡 + 胡牌
-      const dou=douCells(p);            if(dou)seg.push(dou);
-      const chk=chickenCells(sur[p]);   if(chk)seg.push(chk);
-      if(chargeOf[p])seg.push('冲锋鸡×'+chargeOf[p]);
-      const hf=huFan[p]||0;             if(hf)seg.push('胡牌 '+hf);
+    if(called[p]){                                   // 叫牌家：杠 + 鸡（含冲锋鸡）+ 胡牌
+      const dou=douCells(p);               if(dou)seg.push(dou);
+      const chk=chickenCells(sur[p],ck);   if(chk)seg.push(chk);
+      const hf=huFan[p]||0;                if(hf)seg.push('胡牌 '+hf);
     }else if(chargeOf[p]){                           // 未叫家：只报他赔出去的那只冲锋鸡
       seg.push('冲锋鸡×'+chargeOf[p]);
     }
