@@ -1470,7 +1470,11 @@ function patternBonus(hand, melds, p){
 function aiDiscardSmart(p){
   const hand=G.hands[p], melds=G.melds[p];
   const meldN=(melds||[]).length;
-  // —— 第一轮：只看向听数，记录最优值 ——
+  // —— 第一轮：只看向听数（**只干"筛掉会亏向听的牌"这一件事**），记录最优值 ——
+  //   ⚠️ 旧版在这里给幺鸡/乌骨鸡加 1.5 个向听数（理由："打鸡要担冲锋鸡的责任"）——
+  //      后果是它**永远进不了最优档候选**：实测 36 副有机会的手牌，电脑打出鸡 **0 次**
+  //      （用户 2026-09-16 反馈"电脑很少打冲锋鸡，和实际玩牌不一样"）。
+  //      该不该打鸡是**估价**问题 → 挪到第二轮用软惩罚处理。
   const cands=[];
   let bestSh=99;
   for(let c=0;c<27;c++){
@@ -1478,15 +1482,12 @@ function aiDiscardSmart(p){
     hand[c]--;
     const sh=shanten(hand,meldN);
     hand[c]++;
-    // 打出幺鸡/乌骨鸡会触发冲锋鸡责任，给一个虚拟惩罚（推后其优先级）
-    const chicken=(c===9||c===25)?1.5:0;
-    const shEff=sh+chicken;
-    cands.push({c:c,sh:sh,shEff:shEff});
-    if(shEff<bestSh)bestSh=shEff;
+    cands.push({c:c,sh:sh});
+    if(sh<bestSh)bestSh=sh;
   }
   if(!cands.length)return aiDiscard(hand);   // 兜底
   // —— 第二轮：只对最优向听档位的候选，精算进张/危险/番型 ——
-  const top=cands.filter(x=>x.shEff<=bestSh+1e-9);
+  const top=cands.filter(x=>x.sh<=bestSh+1e-9);
   let best=-1,bestScore=-1e9;
   for(const o of top){
     const c=o.c;
@@ -1501,7 +1502,14 @@ function aiDiscardSmart(p){
     //   sh<=0（打完就叫牌）→ 0.18；sh==1 → 0.5；≥2 → 1.15（该收就收）。
     const push=(o.sh<=0)?0.18:((o.sh===1)?0.5:1.15);
     let sc = -o.sh*1000 + ut.tiles*12 + ut.types*6 - danger*12*dangerWeight(p)*push + pb;
-    if(c===9||c===25) sc += 70;                 // 幺鸡/乌骨鸡不做第一个打出去的（送鸡给叫牌家）
+    // 幺鸡/乌骨鸡：打出去可能是**本局第一张**（= 冲锋鸡）。但那笔钱**不是纯亏** ——
+    //   自己叫了牌是**收**（其他三家各付 2 分），只有没叫牌才要赔给每个叫牌家 2 分。
+    //   所以：① 这个牌种**已经有人冲过** → 无风险，不罚；
+    //        ② 打完这张就能叫牌（o.sh<=0）→ 几乎不罚；离叫牌越远越收着点（4 / 12 / 22）。
+    //   量级压得很轻（一张有效进张 = 12 分），只在"两张牌差不多"时才影响选择。
+    //   ⚠️ 这里原来是 `sc += 70`（**加分** = 更该打），跟它自己的注释"不做第一个打出去的"方向相反。
+    if(isChickenTile(c)&&!(G.chargeChickens||[]).some(ch=>ch.card===c))
+      sc -= (o.sh<=0)?4:((o.sh===1)?12:22);
     if(sc>bestScore){bestScore=sc;best=c;}
   }
   if(best<0)best=aiDiscard(hand);              // 兜底
@@ -2770,7 +2778,11 @@ function chickenSettle(win, lines, total, burn, tail, huFan){
     }
     let txt=`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${seg.length?' '+seg.join('，'):''}`;
     if(thrownC[p])txt+=` → 包鸡 各 ${thrownC[p]} 分`;
-    if(called[p])txt+=`（共 ${ownC[p]+chargeVal[p]+(huFan[p]||0)} 分）`;   // 未叫家收不到 → 不写
+    // 「（共 N 分）」：叫牌家 = 他名下分值的合计；未叫家持有冲锋鸡时是**负数**
+    //   （那笔是他赔出去的，例：`下家［未叫］ 冲锋鸡×1（共 -2 分）`，用户 2026-09-16 给的写法）。
+    //   未叫家没有冲锋鸡时仍然什么都不写（一行只到［未叫］）。
+    if(called[p])txt+=`（共 ${ownC[p]+chargeVal[p]+(huFan[p]||0)} 分）`;
+    else if(chargeOf[p])txt+=`（共 -${chargeVal[p]} 分）`;
     if(isBurned(p))txt+=' · 鸡全烧（热炮）';
     lines.push(txt);
   });
@@ -3138,7 +3150,7 @@ function scoreSummaryHtml(){
    .line 本身就是 flex + justify-content:space-between，所以只要把行切成两个 span 就自然靠右；
    行尾可能还有别的尾巴（热炮标记），一起放进右段，保证它仍然贴着右边。 */
 function resultLineHTML(l){
-  const m=/^(.*)（共 (\d+) 分）(.*)$/.exec(l);
+  const m=/^(.*)（共 (-?\d+) 分）(.*)$/.exec(l);      // ⚠️ 负号要带上：未叫家持有冲锋鸡时是 `（共 -2 分）`
   if(m&&/［叫牌］|［未叫］/.test(m[1]))
     return `<div class="line"><span>${m[1]}</span><span class="rp">（共 ${m[2]} 分）${m[3]}</span></div>`;
   return `<div class="line"><span>${l}</span></div>`;
