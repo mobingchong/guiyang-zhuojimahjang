@@ -1476,6 +1476,26 @@ function patternBonus(hand, melds, p){
 // 增强版出牌决策：接收「家号 p」，综合向听 / 进张 / 危险 / 番型 / 留鸡 打分
 // 性能关键：进张数（usefulTiles，约 1.5ms/次）只对「向听数已达最优」的候选计算，
 // 先用便宜的向听数筛一轮，避免对 14 个候选全部精算（否则 20ms+/手）。
+/* ===== AI 策略档 `window.AI_TUNE`（默认 = 线上行为，只有模拟器/调参会改）=====
+   · style  'base'  = 现在的行为
+            'stage' = 照 `docs/策略与模拟数据.md` §三「分阶段实操」打：
+                      起手纯效率 → 中盘收鸡 → 尾声转防守 → 牌墙见底「叫牌压倒一切」
+   · peng   'smart' = 碰完向听数不能变差才碰（现行为）
+            'always'= **有对必碰**（只过合法性检查；用来验证「有碰就必碰」划不划算）
+   · danger         危险度整体缩放（1 = 现行为；0 = 完全不防守；2 = 双倍保守）
+   每个键都可以是「1 个值 = 全场」或「4 个值 = 按座位」，供混桌 A/B。
+   ⚠️ 这些都只影响**电脑怎么打**，不改任何规则与结算。
+*/
+/* 🔴 默认值来自 **48 批 / 19200 局**混桌 A/B（每批 400 局，细节见 docs/策略与模拟数据.md §四）：
+   · style='stage'  分阶段：**+0.41 分/局**（14 批，t=2.18）
+   · danger=0       不防守：**+1.47 分/局**（8 批，t=4.84，**逐批 8/8 为正**）—— 收益最大的一项
+   · peng='smart'   **不改成 always**：单独测 +0.60，但与"不防守"叠加后转负（4 批里有 2 批为负）
+                    → 交互不明，保持原样。
+   想回退成老行为：把三个值改回 'base' / 'smart' / 1 即可（一行）。 */
+window.AI_TUNE={style:['stage'],peng:['smart'],danger:[0]};
+const tuneOf=(k,p)=>{const a=window.AI_TUNE&&window.AI_TUNE[k];
+  if(!a||!a.length)return (k==='danger')?1:((k==='peng')?'smart':'base');
+  return a.length===1?a[0]:a[p];};
 function aiDiscardSmart(p){
   // 🔧 冲鸡惩罚的三档（打出去的若是本局第一张 幺鸡/8筒 时扣多少分）——
   //    抽成可配置，供 `tests/sim.js` 做 A/B 对比（改这三个数会改变"电脑多爱冲鸡"）。
@@ -1519,8 +1539,23 @@ function aiDiscardSmart(p){
     // 旧版是固定 *14 不随进度变化 → 开局太怂、尾声太莽，正好反了。
     // 冲/收的强度分三档（麻将常识：**已经叫牌就别为了安全拆叫**）：
     //   sh<=0（打完就叫牌）→ 0.18；sh==1 → 0.5；≥2 → 1.15（该收就收）。
-    const push=(o.sh<=0)?0.18:((o.sh===1)?0.5:1.15);
-    let sc = -o.sh*1000 + ut.tiles*12 + ut.types*6 - danger*12*dangerWeight(p)*push + pb;
+    let push=(o.sh<=0)?0.18:((o.sh===1)?0.5:1.15);
+    let tu=12, ty=6, dw=dangerWeight(p);
+    /* ---- 「分阶段实操」档（style='stage'）—— 照 docs/策略与模拟数据.md §三 ----
+       牌墙开局约 55 张、一局约 13.75 巡 → 每巡摸掉 4 张，于是：
+         >30 张 ≈ 前 6 巡（起手）｜ 12~30 张 ≈ 中盘 ｜ <12 张 ≈ 第 12 巡后（见底）
+       · 起手：**纯效率**（进张权重上调；开局没人副露，危险度本来就近 1，不用管）；
+       · 见底：**叫牌压倒一切** —— 黄庄查叫是「未叫者赔叫牌者」，
+               所以「还差一张就听牌」这一步要把危险度几乎关掉（0.22）；
+               反过来离听牌还远（sh≥2）说明这局多半叫不上了 → 转成死守（1.6）。 */
+    if(tuneOf('style',p)==='stage'){
+      const wallLeft=(G.wall&&G.wall.length)||0;
+      if(wallLeft>30){ tu=15; ty=7; }
+      else if(wallLeft<12){ push=(o.sh<=0)?0.06:((o.sh===1)?0.22:1.6); }
+      else if(wallLeft<25){ dw*=1.15; }
+    }
+    let sc = -o.sh*1000 + ut.tiles*tu + ut.types*ty
+             - danger*12*dw*push*tuneOf('danger',p) + pb;
     // 幺鸡/乌骨鸡：打出去可能是**本局第一张**（= 冲锋鸡）。但那笔钱**不是纯亏** ——
     //   自己叫了牌是**收**（其他三家各付 2 分），只有没叫牌才要赔给每个叫牌家 2 分。
     //   所以：① 这个牌种**已经有人冲过** → 无风险，不罚；
@@ -1544,6 +1579,9 @@ function shouldPeng(p, card){
   // ② 手牌碰掉 2 张后必须还能留 ≥1 张可打
   const handN=hand.reduce((a,b)=>a+b,0);
   if(handN-2<1)return false;
+  // 「有碰必碰」档（只给模拟器/调参用，默认关闭）：过了上面两条合法性就碰 ——
+  //   不看向听数、也不保七对，这样才测得出「有碰就必碰」到底划不划算。
+  if(tuneOf('peng',p)==='always')return true;
   // ③ 七对倾向：暗牌还没副露、且对子≥4 时，不碰（碰了就做不成七对）
   if(melds.length===0){
     let pairs=0;
