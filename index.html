@@ -275,6 +275,7 @@ body{
 .scoreBoard .sname{color:#9fd}
 /* 「庄」标记：本局庄家（下局由他摇色子先拿先出牌）；「✎」提示自己的名字可以点开改 */
 .scoreBoard .zh{color:#ffd700;font-size:.85em;margin-left:3px}
+.scoreBoard .hno{color:#cfe3d8;font-weight:400;font-size:.92em}
 .scoreBoard .pen{opacity:.5;font-size:.85em;margin-left:3px}
 .scoreBoard .srow.mine{cursor:pointer}
 .scoreBoard .pos{color:#7fe08a}
@@ -505,6 +506,10 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
 /* 四家行右端的「（N 个）」：.line 本身就是 flex + space-between，切成两个 span 就靠右了；
    nowrap 保证它不被左段挤成两行（用户要求"括号里的右边对齐"） */
 #result .line>span.rp{white-space:nowrap;text-align:right;flex:0 0 auto}
+/* 「本局 / 累计」之间那条：显示累计已打局数（用户 2026-09-16 要求）。
+   做成一条居中细字 + 上虚线，既报局数、又当两块的分界，不额外占视觉重量。 */
+#result .scoreBar{margin-top:9px;padding-top:6px;border-top:1px dashed #dfe6e1;
+  text-align:center;font-size:11.5px;color:#7c8b83;letter-spacing:.4px}
 #result .scoreSummary{margin-top:10px;background:#f4f7f5;border-radius:8px;padding:6px 10px}
 #result .scoreSummary .line{border-bottom:1px solid #e2e8e4;font-size:13px}
 #result .scoreSummary .line:last-child{border-bottom:none}
@@ -750,6 +755,7 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
   #result .peekHint{flex:1 1 100%}
   #result .line{font-size:11.5px;padding:2px 0}
   #result .rScores{margin-top:4px}
+  #result .scoreBar{margin-top:5px;padding-top:4px;font-size:10.5px}
   #result .scoreSummary{margin-top:6px;padding:3px 8px}
   #result .scoreSummary .line{font-size:11.5px}
   #result .rBtns{margin-top:8px}
@@ -785,7 +791,7 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
      「屏高 − 底部整摞 − 顶部对家那一摞」，400px 高的屏只剩 ~290px，
      而两张表加起来要 319px → 会滚起来（实测裁切 23px）。
      累计积分在牌桌中央的积分板上本来就看得到，收起态省掉它不丢信息。 */
-  #result.peekMode .scoreSummary{display:none}
+  #result.peekMode .scoreSummary,#result.peekMode .scoreBar{display:none}
   /* 墙牌块再省一档：400 高的横屏窗体上限只有 ~384px，原来超 12px（一超就滚动、等于白做）。 */
   #result .rWall{margin-top:4px;padding-top:4px}
   #result .rWallT{font-size:11px;margin-bottom:2px}
@@ -955,7 +961,7 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
 /* ⚠️ 收起态是"结算时默认的样子"，窗宽只有 ~232px（要给两侧副露让位），
    内容会比高度上限还高 → 一超就滚动、等于白做。累计积分在牌桌中央的积分板上本来就看得到，
    这里省掉它（本局得分仍逐家列出）；点窗体/「本局详情」展开后会重新出现。 */
-#result.peekMode .scoreSummary{display:none}
+#result.peekMode .scoreSummary,#result.peekMode .scoreBar{display:none}
 /* 收起态的行距/标题压一档：窗宽只有 ~232px（给两侧副露让位），要同时装下
    标题 + 胡牌过程 + 本局得分 + **未摸到的牌** + 提示，必须把每行压缩。 */
 #result.peekMode .line{font-size:11px;padding:1px 0}
@@ -1471,6 +1477,16 @@ function patternBonus(hand, melds, p){
 // 性能关键：进张数（usefulTiles，约 1.5ms/次）只对「向听数已达最优」的候选计算，
 // 先用便宜的向听数筛一轮，避免对 14 个候选全部精算（否则 20ms+/手）。
 function aiDiscardSmart(p){
+  // 🔧 冲鸡惩罚的三档（打出去的若是本局第一张 幺鸡/8筒 时扣多少分）——
+  //    抽成可配置，供 `tests/sim.js` 做 A/B 对比（改这三个数会改变"电脑多爱冲鸡"）。
+  //    产品默认 [4,12,22]：越接近叫牌罚得越轻。
+  //    CHARGE_PEN 可以不设（产品默认 [4,12,22]）、给一组（全场统一）、
+  //    或给四组（**按座位** —— `tests/sim.js` 的混桌 A/B 实验用这个：0/2 号一家、1/3 号另一家）。
+  const CP=(function(){
+    if(typeof CHARGE_PEN==='undefined'||!Array.isArray(CHARGE_PEN)||!CHARGE_PEN.length)return [4,12,22];
+    if(Array.isArray(CHARGE_PEN[0]))return CHARGE_PEN[p]||[4,12,22];
+    return CHARGE_PEN;
+  })();
   const hand=G.hands[p], melds=G.melds[p];
   const meldN=(melds||[]).length;
   // —— 第一轮：只看向听数（**只干"筛掉会亏向听的牌"这一件事**），记录最优值 ——
@@ -1512,7 +1528,7 @@ function aiDiscardSmart(p){
     //   量级压得很轻（一张有效进张 = 12 分），只在"两张牌差不多"时才影响选择。
     //   ⚠️ 这里原来是 `sc += 70`（**加分** = 更该打），跟它自己的注释"不做第一个打出去的"方向相反。
     if(isChickenTile(c)&&!(G.chargeChickens||[]).some(ch=>ch.card===c))
-      sc -= (o.sh<=0)?4:((o.sh===1)?12:22);
+      sc -= (o.sh<=0)?CP[0]:((o.sh===1)?CP[1]:CP[2]);
     if(sc>bestScore){bestScore=sc;best=c;}
   }
   if(best<0)best=aiDiscard(hand);              // 兜底
@@ -3179,7 +3195,7 @@ function endGame(){
   // 顺序 = 自己 → 对家 → 上家 → 下家（与上面四家行同一顺序）；净额后面挂「（收 X − 付 Y）」
   [0,2,3,1].forEach(p=>{const v=total[p];
     side+=`<div class="line"><span>${NAMES[p]}${tingL.includes(p)?' <span style="color:#0a7">叫牌</span>':' <span style="color:#aaa">未叫</span>'}</span><span><span style="color:${v>=0?'#0a7':'#c00'}">${v>=0?'+':''}${v} 分</span>${bookSpan(p)}</span></div>`;});
-  side+=`</div><div class="scoreSummary">${scoreSummaryHtml()}</div>`;
+  side+=`</div>`+scoreBarHtml()+`<div class="scoreSummary">${scoreSummaryHtml()}</div>`;
   const rBtns=`<div class="rBtns"><button class="gray" onclick="closeResult()">再来一局</button></div>`;
   setResultBox(`<h2>黄庄 · 无人胡牌</h2><div class="rMain">${main}</div><div class="rSide">${side}</div>`+rBtns);
   openResult();
@@ -3196,6 +3212,16 @@ function bookSpan(p){
   const a=BOOK.plus[p],b=BOOK.minus[p];
   if(!a&&!b)return '';
   return `<span class="bk">（收 ${a} − 付 ${b}）</span>`;
+}
+// 累计已打局数（结算窗「本局 / 累计」中间那条）。
+// 口径：存档里的 hands（endHandBookkeeping 每局 +1，**含本局**）；取不到就不显示这一行。
+function handsPlayed(){
+  try{const r=Store.rec(Store.data.name);if(r&&r.hands>0)return r.hands;}catch(e){}
+  return (typeof G.handNo==='number'&&G.handNo>0)?G.handNo:0;
+}
+function scoreBarHtml(){
+  const n=handsPlayed();
+  return n?`<div class="scoreBar">累计 ${n} 局</div>`:'';
 }
 // 累计积分：顺序也跟上面四家行一致（自己 → 对家 → 上家 → 下家）
 function scoreSummaryHtml(){
@@ -3249,7 +3275,7 @@ function showResult(res){
   res.lines.forEach(l=>main+=resultLineHTML(l));
   let side=`<div class="rScores">`;
   [0,2,3,1].forEach(p=>{const v=res.total[p];side+=`<div class="line"><span>${NAMES[p]}<span style="color:#aaa;font-size:11px"> 本局</span></span><span><span style="color:${v>=0?'#0a7':'#c00'}">${v>=0?'+':''}${v} 分</span>${bookSpan(p)}</span></div>`;});
-  side+=`</div><div class="scoreSummary">${scoreSummaryHtml()}</div>`;
+  side+=`</div>`+scoreBarHtml()+`<div class="scoreSummary">${scoreSummaryHtml()}</div>`;
   // 完局后三家手牌已亮正面；这里给一个「点牌桌看牌」的入口，
   // 点一下把结算窗缩到角落，四家手牌一览无遗。
   // 完局后把**牌墙里没摸到的牌**也全部翻开（用户要求）：
@@ -4290,7 +4316,7 @@ function render(){
   // 积分板：实时显示累计总分 + 本局分。第一行是自己的名字（点它可以改名/换记录），
   // 名字后面带「庄」的是本局庄家（下局由他摇色子先出牌）。
   document.getElementById('scoreBoard').innerHTML=
-    `<div class="srow" style="color:#9fd;font-weight:700"><span>本局/累计</span><span></span></div>`
+    `<div class="srow" style="color:#9fd;font-weight:700"><span>本局/累计</span><span class="hno">第 ${(typeof G.handNo==='number'?G.handNo:0)+1} 局</span></div>`
     +NAMES.map((n,p)=>{
       const v=G.scores[p], r=G.roundScore[p];
       const cls=v>0?'pos':v<0?'neg':'';
