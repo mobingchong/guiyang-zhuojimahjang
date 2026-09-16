@@ -499,6 +499,9 @@ body.isResult #voiceBtn,body.isDice #voiceBtn,body.isName #voiceBtn{display:none
 #result .rWallG .tile .k{display:none}
 /* 收起态也要显示"未摸到的牌"（用户要求）：靠下面的行距压缩把位置腾出来。 */
 #result .line{font-size:13px;padding:5px 0;border-bottom:1px solid #eee;display:flex;justify-content:space-between;gap:8px}
+/* 四家行右端的「（共 N 分）」：.line 本身就是 flex + space-between，切成两个 span 就靠右了；
+   nowrap 保证它不被左段挤成两行（用户要求"括号里的右边对齐"） */
+#result .line>span.rp{white-space:nowrap;text-align:right;flex:0 0 auto}
 #result .scoreSummary{margin-top:10px;background:#f4f7f5;border-radius:8px;padding:6px 10px}
 #result .scoreSummary .line{border-bottom:1px solid #e2e8e4;font-size:13px}
 #result .scoreSummary .line:last-child{border-bottom:none}
@@ -2642,9 +2645,13 @@ function chickenOwnPts(s){return s.rows.reduce((a,r)=>a+(r.keep+r.disc)*r.v,0);}
 /* 鸡分结算。total 传数组 = 真结算；传 null = **只统计不落分**（黄庄用，规则："黄庄豆鸡不算分"）。
    写进 total，并把可直接显示的明细 push 到 lines。
    顺序：① 翻牌（写清"翻到什么、本局的鸡是什么"） → ② 每家鸡的类型/数量 → ③ 常鸡收付 → ④ 冲锋鸡 → ⑤ 责任鸡 */
-function chickenSettle(win, lines, total, burn, tail){
+function chickenSettle(win, lines, total, burn, tail, huFan){
   // tail：冲锋鸡 / 责任鸡 的行推到这里（结算窗要把它们排在"豆"之后，见 settle 里的拼接顺序）。
   //       不传就照旧推给 lines —— 测试脚本直接调 chickenSettle 时仍然只有一个数组。
+  //       ⚠️ 用户 2026-09-16 把这两行删掉之后，tail 实际**不再收到任何内容**（接口留着，
+  //          以后要挂新东西不用改调用点）。
+  // huFan：四家各自的**胡牌分**（[0,0,0,0]，可选）—— 四家行的「胡牌 N」与「（共 N 分）」要用。
+  huFan=Array.isArray(huFan)?huFan:[0,0,0,0];
   const out=Array.isArray(tail)?tail:lines;
   const winList=(Array.isArray(win)?win:[win]).filter(p=>typeof p==='number'&&p>=0&&p<4);   // 可能多家同时胡
   const dry=!total;
@@ -2708,22 +2715,46 @@ function chickenSettle(win, lines, total, burn, tail){
       total[i]+=recv-pay;
     }
   }
+  /* ---- ④ 冲锋鸡的「持有者 / 只数 / 分值」**提前算**（用户 2026-09-16）----
+     四家行要写「冲锋鸡×N」，而「（共 N 分）」还要把它的分值加进去 → 必须在这两行之前算出来。
+     收付（改 total）仍留在下面 ④ 段里，两处共用 chargeHold / chargeVal，不会走偏。 */
+  const cvOf=card=>((fc===card)?4:2);                  // 该牌种本局是金鸡 → 4 分
+  const chargeOf=[0,0,0,0], chargeVal=[0,0,0,0];       // 座位 → 只数 / 分值
+  const chargeHold={};                                 // 持有者 → 他持有的冲锋鸡
+  (G.chargeChickens||[]).forEach(ch=>{
+    // 持有者（含责任转移）与 ③ 段共用同一个 chargeOwner，两处判定不会走偏
+    const holder=chargeOwner(ch);
+    (chargeHold[holder]=chargeHold[holder]||[]).push({card:ch.card});
+  });
+  Object.keys(chargeHold).forEach(k=>{
+    const a=+k, list=chargeHold[k];
+    chargeOf[a]=list.length;
+    chargeVal[a]=list.reduce((sum,h)=>sum+cvOf(h.card),0);   // 同一家多只 → 相加
+  });
+
   /* ---- 第 2 行 + 第 3~6 行（用户 2026-09-16 定的结构）----
      顺序：**自己 → 对家 → 上家 → 下家**（用户指定，不是出牌顺序）。
      每行 = 名字［叫牌/未叫］+ 他的杠 + 他的鸡（金 / 翻牌鸡 都挂在牌种上），项之间用「，」分隔。
-     · **未叫家一行只写到［未叫］** —— 他的杠、他的鸡全部不算他的分，列出来只是占地方（用户 2026-09-16）。
-     · **只有叫牌家**（收得到分的那种）才列；他打出去的鸡进了包鸡 → 在该行尾巴补一句
-       `→ 包鸡 各 N 分`（写在**打出那张鸡的那一家自己**这一行里）。
+     · **未叫家只列他要赔的那只冲锋鸡**，杠与鸡一律不写（都不算他的分，列了只是占地方）。
+     · 行尾 `（共 N 分）` = 这一家名下的分值合计（常鸡 + 冲锋鸡 + 胡牌；每项按**单价**算，不乘家数）。
+       ⚠️ 它是**显示口径**，不等于侧栏的本局净额（净额 = 收 − 付）。渲染时靠 `.line` 的
+       flex+space-between 把它**靠右对齐**（见 resultLineHTML）。
+     · 他打出去的鸡进了包鸡 → 该行尾巴补一句 `→ 包鸡 各 N 分`（写在**打出那张鸡的那一家自己**这一行里）。
      "钱怎么走"不再单独占一行，方向由侧栏（rSide）的本局净额体现。 */
   lines.push(flipTxt);
   [0,2,3,1].forEach(p=>{
     const seg=[];
-    if(called[p]){                                   // 未叫家：后面一律不写
+    if(called[p]){                                   // 叫牌家：杠 + 鸡 + 冲锋鸡 + 胡牌
       const dou=douCells(p);            if(dou)seg.push(dou);
       const chk=chickenCells(sur[p]);   if(chk)seg.push(chk);
+      if(chargeOf[p])seg.push('冲锋鸡×'+chargeOf[p]);
+      const hf=huFan[p]||0;             if(hf)seg.push('胡牌 '+hf);
+    }else if(chargeOf[p]){                           // 未叫家：只报他赔出去的那只冲锋鸡
+      seg.push('冲锋鸡×'+chargeOf[p]);
     }
     let txt=`${NAMES[p]}［${called[p]?'叫牌':'未叫'}］${seg.length?' '+seg.join('，'):''}`;
     if(thrownC[p])txt+=` → 包鸡 各 ${thrownC[p]} 分`;
+    if(called[p])txt+=`（共 ${ownC[p]+chargeVal[p]+(huFan[p]||0)} 分）`;   // 未叫家收不到 → 不写
     if(isBurned(p))txt+=' · 鸡全烧（热炮）';
     lines.push(txt);
   });
@@ -2740,39 +2771,21 @@ function chickenSettle(win, lines, total, burn, tail){
   //          （例：幺鸡 2 + 乌骨鸡 2 = 4；金幺鸡时 4 + 2 = 6。用户 2026-09-16）
   //    收付：持有者叫牌 → **其他三家各付**（含胡牌家 —— 胡了牌也照样付）；
   //          持有者未叫 → 他给每个叫牌家各付（鸡分只在"叫牌 ↔ 未叫"之间走）。
-  const cvOf=card=>((fc===card)?4:2);                  // ③ 该牌种是金鸡 → 4 分
-  const chs=G.chargeChickens||[];
-  if(chs.length){
-    const hold={};                                     // 持有者 → 他持有的冲锋鸡
-    chs.forEach(ch=>{
-      // 持有者（含责任转移）与 ③ 段共用同一个 chargeOwner，两处判定不会走偏
-      const holder=chargeOwner(ch);
-      const via=(ch.via&&called[ch.p])?'（原打出者 '+NAMES[ch.from]+'，被 '+ch.via+'走 → 责任已转移）':'';
-      if(ch.via&&!called[ch.p])
-        out.push(`冲锋鸡责任转移：${NAMES[ch.p]} ${ch.via}走时未叫牌 → 不转移，仍归原打出者 ${NAMES[holder]}`);
-      (hold[holder]=hold[holder]||[]).push({card:ch.card,via:via});
-    });
-    Object.keys(hold).forEach(k=>{
-      const a=+k,list=hold[k];
-      const val=list.reduce((sum,h)=>sum+cvOf(h.card),0);
-      const what=list.map(h=>chickenName(h.card)+h.via).join('、');
+  Object.keys(chargeHold).forEach(k=>{
+    const a=+k, val=chargeVal[a];
       if(called[a]){
         // 付款方 = **其他三家**（含胡牌家！）—— 用户口径："就算胡牌了，该付的照付"。
         const payers=[0,1,2,3].filter(q=>q!==a);
-        if(payers.length){
-          if(!dry)payers.forEach(q=>{total[q]-=val;total[a]+=val;});
-          out.push(`冲锋鸡：${NAMES[a]} 打出的第一张${what}（叫牌）→ 其他三家各付 ${val} 分（含胡牌家）`);
-        }else{
-          out.push(`冲锋鸡：${NAMES[a]} 的${what}（全场就他一家）→ 无人可付，不结算`);
-        }
-      }else if(callList.length){
-        if(!dry)callList.forEach(q=>{total[a]-=val;total[q]+=val;});
-        out.push(`冲锋鸡：${NAMES[a]} 打出的第一张${what}（未叫）→ 给每个叫牌家各付 ${val} 分 × ${callList.length} 家`);
-      }else{
-        out.push(`冲锋鸡：${NAMES[a]} 的${what}（全场无人叫牌）→ 不结算`);
-      }
-    });
-  }
+        if(!dry)payers.forEach(q=>{total[q]-=val;total[a]+=val;});
+    }else if(callList.length){
+      if(!dry)callList.forEach(q=>{total[a]-=val;total[q]+=val;});
+    }
+    // 全场无人叫牌 → 不结算（什么都不做）
+  });
+  /* ⚠️ 用户 2026-09-16：**冲锋鸡不再单独出一行**（原来写「…打出的第一张X（叫牌）→ 其他三家各付 N 分」）。
+     钱照旧在算（上面这几行 total 的加减**一行没动**），只是结算窗不再解释"这笔钱哪来的"——
+     方向由侧栏的本局净额体现。**别为了"看得清"把行进重新加回来**，用户点名删过两次这类汇总行
+     （先是「鸡分：」，再是「冲锋鸡：」）。 */
 
   // ⑤ 责任鸡（④）—— "其它家给 3 鸡、打出的给 4 鸡"
   //    打出的**幺鸡**被**叫牌家**碰/杠走：那副露进碰走者的门前（碰 3 / 杠 4 张，已在③段按"保留"计入他的鸡数，
@@ -2781,25 +2794,14 @@ function chickenSettle(win, lines, total, burn, tail){
   //      ① 碰走者必须叫牌 —— 否则那副露的鸡不算（未叫家保留的常鸡不计），整条不结算；
   //      ② 打出者必须未叫 —— 包鸡只算**未叫家打出的鸡**；打出者本人也叫牌时，这张牌随牌进了碰走者的
   //         副露（已在③段算他的），不再多收这 1 分。
+  //    ⚠️ 同样**不再单独出行**（用户 2026-09-16），只保留这 1 分的收付。
   const rps=G.respChickens||[];
   rps.forEach(rp=>{
-    const tiles=(rp.how==='杠'||rp.how==='明杠')?4:3;
-    const v=chickenValue(rp.card,fc);
-    // ⚠️ 牌种二次把关：责任鸡只认幺鸡（乌骨鸡"参与冲锋鸡、不算责任鸡"）。
-    if(!isRespTile(rp.card)){
-      out.push(`责任鸡：${NAMES[rp.by]} 碰/杠走的是${chickenName(rp.card)} → 乌骨鸡不参与责任鸡，本条不结算`);
-      return;
-    }
-    if(!called[rp.by]){
-      out.push(`责任鸡：${NAMES[rp.from]} 的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走，但 ${NAMES[rp.by]} 未叫牌 → 这副露的鸡不算，本条不结算`);
-      return;
-    }
-    if(called[rp.from]){
-      out.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走，但打出者本人也叫牌 → 包鸡只算未叫家打出的鸡，这 1 分不加`);
-      return;
-    }
+    // 牌种二次把关：责任鸡只认幺鸡（乌骨鸡"参与冲锋鸡、不算责任鸡"）。
+    if(!isRespTile(rp.card))return;
+    if(!called[rp.by])return;
+    if(called[rp.from])return;
     if(!dry){total[rp.from]-=1;total[rp.by]+=1;}
-    out.push(`责任鸡：${NAMES[rp.from]} 打出的${chickenName(rp.card)} 被 ${NAMES[rp.by]} ${rp.how}走 → 这副露按 ${tiles} 张算，计入 ${NAMES[rp.by]} 的鸡分；${NAMES[rp.from]} 再多付 1 分`);
   });
   return {detail:sur,called:called,fieldChicken:fc};
 }
@@ -2962,7 +2964,11 @@ function settle(win,from,zimo,hotCannon){
   }
   // ---- 捉鸡结算：鸡牌身份 / 归属 / 收付全在 chickenSettle 里（含规则①~⑤，见上方长注释）----
   // 热炮（杠上炮）时把点炮者传给鸡结算 → 他的鸡全部不算
-  const chRes=chickenSettle(winners,headLines,total,isHC?[from]:null,tailLines);
+  // 四家行要写「胡牌 N」、还要把它并进「（共 N 分）」→ 把各家的胡牌分整理成 [0,0,0,0] 传下去
+  // （一炮双响时同一家只可能胡一次，仍用 += 兜底）
+  const huFan=[0,0,0,0];
+  info.forEach(x=>{huFan[x.p]+=x.fan;});
+  const chRes=chickenSettle(winners,headLines,total,isHC?[from]:null,tailLines,huFan);
   lines.push(...headLines,...douLines,...tailLines);
   const det=chRes.detail;
   const chickens=det.map(s=>chickenOwnPts(s));
@@ -3082,13 +3088,14 @@ function endGame(){
   }
   G.nextDealer=nd;
   lines.push(`下局坐庄：${NAMES[nd]}${nd===G.dealer?'（连庄）':'（接庄）'}`);
+  // ⚠️ 这里**只能调一次**（`endHandBookkeeping` 里做的是 `r.hands=(r.hands||0)+1`，没有幂等保护）——
+  //    曾经连着写了两行，黄庄时"局数"会 +2，和有人胡牌那局（+1）对不上。
   endHandBookkeeping(-1);            // 黄庄：局数照样记一笔（庄位已由上面 nextDealer 定好）
-  endHandBookkeeping(-1);            // 黄庄：庄家连庄，局数照样记一笔
   render();
   // 黄庄也要亮牌：牌墙摸完了，四家都是什么牌、谁叫牌谁没叫牌，摊开才看得明白
   // 标题那行就说清"黄庄 + 无人胡牌"，第一行不再重复一遍（对齐"有人胡牌"那局的标题写法）
   let main='';
-  lines.forEach(l=>main+=`<div class="line"><span>${l}</span></div>`);
+  lines.forEach(l=>main+=resultLineHTML(l));
   let side=`<div class="rScores">`;
   for(let p=0;p<4;p++){const v=total[p];
     side+=`<div class="line"><span>${NAMES[p]}${tingL.includes(p)?' <span style="color:#0a7">叫牌</span>':' <span style="color:#aaa">未叫</span>'}</span><span style="color:${v>=0?'#0a7':'#c00'}">${v>=0?'+':''}${v} 分</span></div>`;}
@@ -3111,6 +3118,15 @@ function scoreSummaryHtml(){
 }
 // 结算窗内容统一加装：右上角「×」+ 收起后的操作说明。
 // （收起提示原来是个浮层伪元素，位置固定，会压在自己的手牌上；放进窗内最稳。）
+/* 结算窗的一行文字 → HTML。用户 2026-09-16：四家行右端的「（共 N 分）」要**靠右对齐**。
+   .line 本身就是 flex + justify-content:space-between，所以只要把行切成两个 span 就自然靠右；
+   行尾可能还有别的尾巴（热炮标记），一起放进右段，保证它仍然贴着右边。 */
+function resultLineHTML(l){
+  const m=/^(.*)（共 (\d+) 分）(.*)$/.exec(l);
+  if(m&&/［叫牌］|［未叫］/.test(m[1]))
+    return `<div class="line"><span>${m[1]}</span><span class="rp">（共 ${m[2]} 分）${m[3]}</span></div>`;
+  return `<div class="line"><span>${l}</span></div>`;
+}
 function setResultBox(inner){
   document.getElementById('resultBox').innerHTML=
     `<button class="xBtn" type="button" aria-label="关闭" onclick="hideResult()">×</button>`
@@ -3141,7 +3157,7 @@ function showResult(res){
   // 竖屏上下排（原来的样子），横屏自动变左右两栏 —— 400px 高的横屏放不下
   // 竖排的 546px 内容，底部按钮要滚动才够得到（见 CSS ③ 档）。
   let main='';
-  res.lines.forEach(l=>main+=`<div class="line"><span>${l}</span></div>`);
+  res.lines.forEach(l=>main+=resultLineHTML(l));
   let side=`<div class="rScores">`;
   for(let p=0;p<4;p++){const v=res.total[p];side+=`<div class="line"><span>${NAMES[p]}<span style="color:#aaa;font-size:11px"> 本局</span></span><span style="color:${v>=0?'#0a7':'#c00'}">${v>=0?'+':''}${v} 分</span></div>`;}
   side+=`</div><div class="scoreSummary">${scoreSummaryHtml()}</div>`;
